@@ -22,6 +22,9 @@ formal_work/
 tools/oss-cad-suite/
 tools/riscv-toolchain/
 
+# Deepwork state (git-local progress files)
+.slim/deepwork/
+
 # Python
 __pycache__/
 *.pyc

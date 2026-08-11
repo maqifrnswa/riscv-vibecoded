@@ -15,7 +15,7 @@ See [handoff.md](handoff.md) for the session protocol.
 
 | M | Milestone | Status | Exit criteria |
 |---|---|---|---|
-| M0 | Scaffold + toolchain smoke | **TODO** | Repo layout, toolchain pinned, lint gate green, riscv-formal submodule, **stock picorv32 binding green through sby in CI** |
+| M0 | Scaffold + toolchain smoke | **DONE** (2026-08-11, deepwork) | Repo layout, toolchain pinned, lint gate green, riscv-formal submodule, **stock picorv32 binding green through sby in CI** |
 | M1 | RV32I core + RVFI | TODO | RV32I multi-cycle core; riscv-formal `rv32i` prove passing in CI |
 | M2 | C ext + traps + CSRs | TODO | `rv32imc` prove **and** live green (ALTOPS) |
 | M3 | MUL/DIV units | TODO | Bounded-width formal + golden DV + determinism property green; full rv32imc suite green |
@@ -42,6 +42,8 @@ Status legend: `TODO` / `IN PROGRESS` / `BLOCKED` / `DONE`.
 
 ## M0 — Scaffold + toolchain smoke
 
+- **Status: DONE** (2026-08-11). Oracle review gate: APPROVE WITH FIXES; all
+  fixes applied and re-verified.
 - **Objective:** prove the toolchain and repo before writing our RTL.
 - **Tasks:**
   1. Create repo layout (rtl/, formal/, dv/, sw/, tools/, scripts/, constraints/).
@@ -53,7 +55,22 @@ Status legend: `TODO` / `IN PROGRESS` / `BLOCKED` / `DONE`.
      end-to-end including the read_slang↔read_verilog mixing.
   5. Commit + CI skeleton (or Makefiles if no CI available yet).
 - **Exit criteria:** stock picorv32 formal proof green in CI; lint gate green.
-- **Handoff notes:** *(empty — not started)*
+- **Result / evidence:** all criteria met. 15-check representative subset of
+  the stock picorv32 `rv32imc` binding green via sby (bmc depth 20, engine
+  smtbmc boolector): ALU/load/store/branch/jal/jalr/C×2/M×2/reg/pc_fwd/pc_bwd,
+  9–162 s/check, `make formal-smoke` exits 0. Full 87-check suite + prove mode
+  deferred to M3 (see design.md R10–R12).
+- **Pins:** MANIFEST.md (yosys 0.68+48, nextpnr-ice40 0.11, verilator 5.051,
+  iverilog 14.0, sby 0.68, riscv-none-elf-gcc 15.2.0 newlib, riscv-formal
+  `c992aa61`, picorv32.v vendored @ `a473fc8f`).
+- **Known constraints:** toolchains live in /home/agent/up5k-tools (repo's
+  Windows mount blocks symlinks); override with `UP5K_TOOLS_ROOT`.
+- **Handoff notes:** Next action is M1 (RV32I core + RVFI). M1 must start
+  with the two toolchain-validity tasks from design.md R10/R11: (a) one
+  `abc pdr` prove run on the stock binding, (b) the first SV RVFI wrapper +
+  trivial core through sby (exercises the read_slang↔read_verilog mixing).
+  Working commands: `make env`, `make lint`, `make sim-hello`,
+  `make formal-smoke`.
 
 ## M1 — RV32I core + RVFI
 

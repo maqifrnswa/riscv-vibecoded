@@ -263,6 +263,12 @@ spike** on the identical binary. (Bonus: RVFI trace diff against spike.)
 | R7 | Verilator 2-state hiding X bugs | M | L | Formal covers; iverilog 4-state reset smoke |
 | R8 | Feature creep (interrupts/SPI before core stable) | M | M | Milestone gates: formal green before any peripheral beyond v1 |
 | R9 | Toolchain availability in CI | L | M | Pinned prebuilt; documented fallback |
+| R10 | Formal engines unproven beyond `smtbmc boolector` (yices/z3, `abc pdr` needed for M1 prove/M3 div proofs) | M | M | M1's first formal task: one pdr-engine run on the stock binding; verify `verilator --cc` compile path |
+| R11 | `read_slang`↔`read_verilog` mixing in sby unproven (M0 stock binding used `read -sv` only; D14 claim not yet exercised) | M | H | M1 first task after pdr check: SV RVFI wrapper + trivial core through sby; keep wrapper conservative (plain ports/`logic`, no interfaces/struct literals in formally-verified path) |
+| R12 | bmc depth-20 vacuity (picorv32 MUL latency > 20 cyc — mul/mulh green is likely vacuous) | M | M | Our checks.cfg must override generated defaults: RESET_CYCLES 1→8, insn depth 20→48 (design §5.1); vacuity closed by prove/live/cover at M2/M3 |
+| R13 | Unpinned picorv32.v fetch (was moving-target) | — | — | **MITIGATED at M0:** vendored `third_party/picorv32.v` pinned to commit a473fc8fca393771d83b0ffcf0b14db3393339d8; recorded in MANIFEST.md |
+| R14 | Hardcoded toolchain path (single-host scaffold) | — | — | **MITIGATED at M0:** `UP5K_TOOLS_ROOT` env override in scripts/env.sh; recorded in MANIFEST.md |
+| R15 | riscv tool naming drift: xPack ships `riscv-none-elf-*`, common recipes use `riscv32-unknown-elf-*` | L | M | `make env` checks `riscv-none-elf-gcc` first; naming recorded in MANIFEST.md/standards; will bite at M4 (CoreMark) otherwise |
 
 ## 9. Open items / assumptions
 
@@ -279,3 +285,8 @@ spike** on the identical binary. (Bonus: RVFI trace diff against spike.)
   read_slang for RTL + RVFI harness + sby (after verifying the sv-elab/slang
   frontend, built-in since Yosys 0.67), lowRISC/Ibex style, UPduino 3.1,
   polling-only v1, no VexRiscv benchmark.
+- 2026-08-11 — M0 complete (see roadmap). Toolchains relocated to
+  /home/agent/up5k-tools (repo's Windows mount blocks symlinks; fresh
+  extraction on native FS, 0 broken symlinks). Pins in MANIFEST.md.
+  Added R10–R15 (M0 review findings: engine coverage, read_slang-in-sby,
+  bmc-depth vacuity, picorv32 pin, portability, tool naming).

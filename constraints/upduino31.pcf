@@ -1,0 +1,11 @@
+# up5k-rv constraints -- UPduino 3.1 (Lattice iCE40UP5K)
+#
+# Placeholder. Real pin assignments are defined at M6 (FPGA bring-up) once the
+# SoC top-level port list is stable. This file exists so the repo layout has a
+# home for the .pcf and documents the intent.
+#
+# Target board: UPduino 3.1, iCE40UP5K (QFN-48).
+# Usage: consumed by nextpnr-ice40 (`--pcf constraints/upduino31.pcf`) during
+# synthesis at M6.
+#
+# No pins are assigned yet -- see docs/roadmap.md M6.
