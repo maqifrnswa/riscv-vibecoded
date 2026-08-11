@@ -1,0 +1,116 @@
+# up5k-rv Coding Standards
+
+The canonical reference is the **lowRISC Verilog Coding Style Guide**
+(<https://github.com/lowRISC/style-guides/blob/master/VerilogCodingStyle.md>,
+CC-BY 4.0) as used by the lowRISC/Ibex project. This file records the subset
+this project **mandates**, plus project-specific rules. When in doubt, follow
+the canonical guide; justify any exception with a comment (and a lint waiver
+pragma where appropriate).
+
+## Language and files
+
+- **SystemVerilog only** (IEEE 1800-2017), for RTL and testbenches.
+- Extensions: `.sv` (compilation unit, **one module per file**, named after the
+  module), `.svh` (headers, `include` only, never compiled standalone).
+- ASCII only, UNIX line endings, **100 char max line**, no tabs, no trailing
+  whitespace.
+- **Frontend:** Yosys `read_slang` (sv-elab/slang, built-in since Yosys ≥ 0.67).
+  Lint gate in CI: `yosys read_slang` **and** `verilator --lint-only` must both
+  pass. (Verilator is stricter in places — keep it green.)
+
+## Naming
+
+| Construct | Style | Example |
+|---|---|---|
+| Modules, instances, signals, variables, functions | `lower_snake_case` | `fetch_buffer`, `alu_operand_a` |
+| Tunable module parameters | `UpperCamelCase` | `MulEn`, `ResetVec` |
+| Constants / `localparam` / macros | `ALL_CAPS` | `OP_JALR`, `MASK_IDLE` |
+| Enumeration types | `lower_snake_case_e` | `phase_e` |
+| Other typedefs | `lower_snake_case_t` | `word_t` |
+| Enum values | `ALL_CAPS` | `PH_IF1`, `PH_WB` |
+
+Signal suffix conventions (from the canonical guide):
+
+- `_i` / `_o` / `_io` — module port direction
+- `_d` / `_q` — combinational next-state vs registered state (`_q2`, `_q3`…)
+- `_n` — active-low (first suffix, e.g. `rst_ni`)
+- `_e` / `_t` — enum/typedef types
+
+Mandatory:
+
+- Ports: `clk_i` first, then `rst_ni` (active-low, asynchronous reset).
+- Hierarchical consistency: a signal connecting to a port keeps the port's name.
+- Group prefixes for related signals (`bus_valid`, `bus_ready`, `bus_data`).
+
+## Clock and reset
+
+- System clock named `clk` / port `clk_i`. Other domains: `clk_<domain>`.
+- Resets are **active-low and asynchronous** by default: `rst_ni`, reset
+  condition `if (!rst_ni)`.
+- `always_ff @(posedge clk_i or negedge rst_ni) begin ... end` — never the
+  sync-reset-only form unless justified.
+
+## RTL rules
+
+- `always_comb` and `always_ff` only — never bare `always` (except with
+  `@*`-equivalent tools that fail; prefer always_comb).
+- `logic` everywhere in RTL (no `reg`/`wire` in new code).
+- Blocking (`=`) in `always_comb`; non-blocking (`<=`) in `always_ff`; never
+  mix. No latches: any `always_comb` must assign every path (defaults first).
+- Explicit widths on literals (`8'hA0`, not `'hA0` outside parameterized
+  contexts; `'0` for zero-fill is allowed). No implicit width truncation at
+  ports — use explicit concat/extension.
+- Multi-bit signals must not be used in boolean context; compare explicitly
+  (`if (x != '0)`).
+- `case` statements: use `unique case` / `priority case` when intended; always
+  include `default:`. Case-item statements must fit on one line or use
+  `begin`/`end`.
+- `begin`/`end` required for any statement that wraps past a single line;
+  `end else begin` on one line.
+- FSM state signals: named enum type `_e`, values `ALL_CAPS`, register `_q` /
+  next `_d`. Store state in `always_ff`, compute next in `always_comb`.
+- Module declaration: Verilog-2001 full port style (name, type, direction
+  inline). Parameters block `#(...)` then ports block `(...)`, ports in order
+  `clk_i, rst_ni, ...`.
+- Instantiations: **named ports + named parameters only**, tabular-aligned,
+  ports in declared order, `.port_name` shorthand when names match. No `.*`,
+  no positional, no `defparam`.
+- Package dependencies must be acyclic; declare project constants in one
+  package (`up5k_rv_pkg` planned at M1).
+
+## SystemVerilog usage split (design.md D14)
+
+All tools consume the same SV sources, but with a deliberate split:
+
+- **SoC glue / SBus / interconnects / peripherals (not formally verified):**
+  free use of `interface` + `modport`, `typedef struct`, enums, packages —
+  supported by read_slang, sby, and Verilator.
+- **Core RTL (formally verified):** comfortable but disciplined subset.
+  `always_ff/always_comb`, `logic`, packages, typedefs, enums, packed structs
+  are all fine. Avoid: struct/array *literals*, unpacked arrays crossing the
+  RVFI boundary, and anything that makes the read_slang↔read_verilog mixing
+  fragile. The **RVFI/formal boundary is plain logic ports** (no interfaces),
+  so riscv-formal's Verilog harness lines up cleanly — although the harness
+  may itself be written in SV and read via read_slang (allowed per design.md
+  D14), the *core top* exposes plain ports.
+
+## Formal RTL hygiene
+
+- Full reset semantics, no X/Z in reset states; all registers get reset values.
+- No combinational loops; no latches (lint catches these).
+- Handshake semantics documented per module so sby properties can be written
+  without guessing (ack latency bounds, valid/ready invariants).
+
+## Comments
+
+- `//` C++ style preferred; header-style section banners (`////////`) for major
+  module regions (FSM, datapath, etc.).
+- Every module gets a one-line description header + parameter docs.
+- TODO/note style follows Google C++ guide (`// TODO(username): ...`).
+- Units in constant names (`FooLengthBytes`, `SYS_CLK_HZ`).
+
+## Build flags (software, M4)
+
+- `-O2 -march=rv32imc -mabi=ilp32`, newlib, per-memory-map linker script.
+- CoreMark: `PORT_DIR=sw/coremark` (barebones copy), `ee_printf` → fake-UART
+  MMIO, `rdcycle` timing, `MAIN_HAS_NOARGC=1`, `TOTAL_DATA_SIZE=2000`.

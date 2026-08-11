@@ -1,0 +1,69 @@
+# up5k-rv
+
+A small, formally-verified **RV32IMC** RISC-V core and SoC for the **Lattice
+iCE40 UP5K** FPGA, built with open-source tools (Yosys / nextpnr-ice40 /
+icestorm, Verilator, SymbiYosys + riscv-formal, RISC-V GNU toolchain).
+
+The core is a **multi-cycle, von Neumann** design optimized for **minimum
+area** — it must leave most of the UP5K's 5280 logic cells free for the
+customer's ADC + DSP logic — while still clearing a **CoreMark/MHz ×
+Fmax > 20** performance bar with comfortable margin (estimated 90–190).
+
+"Educational" here means *well organized and clearly documented*, not a toy:
+the RTL follows the lowRISC/Ibex coding style, the design decisions are
+recorded in `docs/design.md`, and every milestone is tracked in
+`docs/roadmap.md` so work can be picked up and handed off across sessions.
+
+## Status
+
+- Design phase **complete** — decisions locked and recorded in
+  [`docs/design.md`](docs/design.md).
+- Documentation/tracking backbone in place (this repo).
+- **Next action:** Milestone **M0** — repo scaffold + toolchain pin + formal
+  toolchain smoke test. See [`docs/roadmap.md`](docs/roadmap.md).
+
+## Key facts
+
+| | |
+|---|---|
+| ISA | RV32IMC (M parameterized, default on) |
+| Microarchitecture | Multi-cycle, overlapped next-fetch, ~1.8–2.4k LC |
+| Memory | Von Neumann, unified; custom SBus interface (valid/ready/byte-enables) |
+| Target board | UPduino 3.1 (iCE40UP5K, on-board USB-UART) |
+| Clock | HFOSC 48 MHz direct (PLL as stretch); Fmax target ≥ 48 MHz |
+| Language | SystemVerilog (via Yosys `read_slang` frontend, built-in since Yosys ≥ 0.67) |
+| Verification | riscv-formal `rv32imc` (prove + live) + golden-model DV + bounded-width formal for the M unit |
+| Demo | CoreMark bare-metal, output to a memory-mapped "fake UART" write register |
+
+## Documentation index
+
+- [`docs/design.md`](docs/design.md) — full design: architecture, decisions,
+  memory map, microarchitecture, formal verification plan, risks.
+- [`docs/roadmap.md`](docs/roadmap.md) — milestones M0–M8, status tracking,
+  deepwork usage, handoff notes. **Read this first when starting work.**
+- [`docs/standards.md`](docs/standards.md) — coding style (lowRISC/Ibex) and
+  SystemVerilog usage rules for this project.
+- [`docs/handoff.md`](docs/handoff.md) — cross-session handoff protocol:
+  how to record state so a fresh session can pick up cleanly.
+- [`AGENTS.md`](AGENTS.md) — pointers for AI agents working in this repo.
+
+## Repository layout (target)
+
+```
+├── rtl/            # core/ + soc/ (SystemVerilog)
+├── formal/         # riscv-formal submodule, RVFI channel, mul/div proofs, .sby files
+├── dv/             # cocotb golden-model DV, CoreMark end-to-end sim, spike cross-check
+├── sw/             # bootrom, CoreMark port, BSP (crt0/ld/syscalls), demos
+├── tools/          # uart_loader.py, elf2bin.py
+├── scripts/        # build, formal CI, synth (nextpnr-ice40), lint
+├── constraints/    # .pcf timing constraints
+└── docs/           # this documentation
+```
+
+## Toolchain (pinned at M0)
+
+- **OSS CAD Suite** (latest release): Yosys ≥ 0.67 (`read_slang`), nextpnr-ice40,
+  icestorm (icepack/iceprog/icetime), Verilator, iverilog, SymbiYosys.
+- **riscv-gnu-toolchain** (prebuilt, newlib): `riscv64-unknown-elf-gcc` with
+  `-march=rv32imc -mabi=ilp32` (or riscv-none-elf).
+- Exact versions pinned in CI at M0; see `docs/design.md` §Toolchain.

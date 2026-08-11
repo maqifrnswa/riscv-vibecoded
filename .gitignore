@@ -1,0 +1,38 @@
+# Build / simulation artifacts
+build/
+work/
+*.o
+*.out
+*.vcd
+*.fst
+*.lxt
+
+# Yosys / sby
+*.ys.out
+*.bit
+*.bin
+*.asc
+*.tim
+*.rpt
+engine_*/
+sby_*/
+formal_work/
+
+# Toolchain downloads
+tools/oss-cad-suite/
+tools/riscv-toolchain/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Cocotb / Verilator build dirs
+sim_build/
+*.log
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
