@@ -40,6 +40,17 @@ module alu (
       ALU_SRA:  result_o = $signed(operand_a_i) >>> operand_b_i[4:0];
       ALU_OR:   result_o = operand_a_i | operand_b_i;
       ALU_AND:  result_o = operand_a_i & operand_b_i;
+      // M-extension ALTOPS fake ops (D18): (a +- b) ^ mask, byte-exact vs the
+      // riscv-formal rv32imc models. Masks are the lower 32 bits of the
+      // models' 64-bit constants (XLEN=32).
+      ALU_MUL_ALT:    result_o = (operand_a_i + operand_b_i) ^ 32'h2cdf52a5;
+      ALU_MULH_ALT:   result_o = (operand_a_i + operand_b_i) ^ 32'h15d01651;
+      ALU_MULHSU_ALT: result_o = (operand_a_i - operand_b_i) ^ 32'hea3969ed;
+      ALU_MULHU_ALT:  result_o = (operand_a_i + operand_b_i) ^ 32'hd13db50d;
+      ALU_DIV_ALT:    result_o = (operand_a_i - operand_b_i) ^ 32'h29bbf66f;
+      ALU_DIVU_ALT:   result_o = (operand_a_i - operand_b_i) ^ 32'h8c629acb;
+      ALU_REM_ALT:    result_o = (operand_a_i - operand_b_i) ^ 32'hf5b7d853;
+      ALU_REMU_ALT:   result_o = (operand_a_i - operand_b_i) ^ 32'hbc440241;
       default:  result_o = 32'h0;  // unreachable (enum covered above)
     endcase
 

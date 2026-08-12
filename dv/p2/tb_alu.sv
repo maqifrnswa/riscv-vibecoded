@@ -113,6 +113,19 @@ module tb_alu;
     check_alu(ALU_AND, 32'h0000_000f, 32'h0000_00f0, 32'h0000_0000, "and disjoint");
     check_alu(ALU_AND, 32'hffff_ffff, 32'h0f0f_0f0f, 32'h0f0f_0f0f, "and mask");
 
+    // ---- M-extension ALTOPS fake ops (D18) ------------------------------------
+    // Expected = (a +- b) ^ mask[31:0], byte-exact vs the rv32imc models.
+    check_alu(ALU_MUL_ALT,    32'h0000_0002, 32'h0000_0003, 32'h2cdf_52a0, "mul_alt 2+3");
+    check_alu(ALU_MUL_ALT,    32'hffff_ffff, 32'h0000_0000, 32'hd320_ad5a, "mul_alt -1+0");
+    check_alu(ALU_MULH_ALT,   32'h0000_0001, 32'h0000_0000, 32'h15d0_1650, "mulh_alt 1+0");
+    check_alu(ALU_MULHSU_ALT, 32'h0000_0005, 32'h0000_0002, 32'hea39_69ee, "mulhsu_alt 5-2");
+    check_alu(ALU_MULHSU_ALT, 32'h0000_0002, 32'h0000_0005, 32'h15c6_9610, "mulhsu_alt 2-5");
+    check_alu(ALU_MULHU_ALT,  32'h1234_5678, 32'h0000_0001, 32'hc309_e374, "mulhu_alt");
+    check_alu(ALU_DIV_ALT,    32'h0000_0007, 32'h0000_0002, 32'h29bb_f66a, "div_alt 7-2");
+    check_alu(ALU_DIVU_ALT,   32'h0000_0007, 32'h0000_0002, 32'h8c62_9ace, "divu_alt 7-2");
+    check_alu(ALU_REM_ALT,    32'h0000_0007, 32'h0000_0002, 32'hf5b7_d856, "rem_alt 7-2");
+    check_alu(ALU_REMU_ALT,   32'h0000_0007, 32'h0000_0002, 32'hbc44_0244, "remu_alt 7-2");
+
     // ---- Branch conditions ---------------------------------------------------
     check_branch(32'h0000_0005, 32'h0000_0005, FUNCT3_BEQ,  1'b1, "beq equal");
     check_branch(32'h0000_0005, 32'h0000_0006, FUNCT3_BEQ,  1'b0, "beq not");
