@@ -214,6 +214,20 @@ module tb_decoder;
     check_bit(is_nop, 1'b1, "op bad funct7 nop");
     check_bit(rd_we,  1'b0, "op bad funct7 rd_we");
 
+    // reserved 0100000 in OP with a non-sub/sra funct3 -> NOP (e.g. SLL)
+    dec(32'h4020_91b3);  // funct7=0100000, funct3=001 (SLL), rs1=x1 rs2=x2 rd=x3
+    check_bit(is_nop, 1'b1, "op 0100000 sll nop");
+    check_bit(rd_we,  1'b0, "op 0100000 sll rd_we");
+    // 0100000 with funct3=000 (SUB) and 101 (SRA) stay legal
+    dec(32'h4020_8033);  // sub x0,x1,x0 (funct7=0100000, funct3=000)
+    check_bit(is_nop, 1'b0, "sub not nop");
+    check_bit(rd_we,  1'b1, "sub rd_we");
+    check_enum(alu_op, ALU_SUB, "sub alu_op");
+    dec(32'h4020_d033);  // sra x0,x1,x0 (funct7=0100000, funct3=101)
+    check_bit(is_nop, 1'b0, "sra not nop");
+    check_bit(rd_we,  1'b1, "sra rd_we");
+    check_enum(alu_op, ALU_SRA, "sra alu_op");
+
     // ---- upper immediates --------------------------------------------------------
     // lui x6, 0x12345
     dec(32'h1234_5337);

@@ -71,16 +71,30 @@ Six phases per instruction — `IF1 → IF2 → ID → EX → MEM → WB` — wi
 - **MEM**: LSU address cycle (loads/stores only).
 - **WB**: writeback, CSR update, **retire** (RVFI asserted here).
 
-Overlap schedule: for a sequential ALU op, `IF1(i+1)` runs during `EX(i)`,
-`IF2(i+1)` during `MEM(i)` (free — ALU ops skip MEM). Loads occupy MEM+WB so
-the next fetch shifts one slot (load-use ≈ +1 cycle). Taken branch: buffer
-squashed, refetch → +2 cycles. `mret`/trap redirect: same +2.
+Overlap schedule (as implemented, M1): the execute pipeline is
+`ID → EX → (MEM) → WB → IDLE → ID`, i.e. WB always retires into one IDLE
+cycle before the next ID. This makes the schedule **hazard-free by
+construction**: ID reads the register file a full cycle after the previous
+instruction's WB commit edge, so there is no forwarding and no load-use stall
+for correctness (CPI ≈ 4 for ALU/branch, ≈ 5 for load/store). The next
+instruction's fetch overlaps the current instruction's EX/MEM/WB: `F_REQ(i+1)`
+is issued during `EX(i)` for ALU/branch instructions (at the ID→EX edge) and
+during `WB(i)` for loads/stores (at the MEM→WB edge); the fetched word is
+accepted at the IDLE→ID edge. Taken branch/jal/jalr: the sequential successor
+is fetched speculatively; a taken branch redirects the fetch unit at the
+EX→WB edge (target = `(rs1+imm)&~1` for jalr, else `pc+imm`), squashing the
+pending word — with a combinational memory slave the taken path costs ~0 extra
+cycles. `mret`/trap redirect: same redirect path (M2). D5 forwarding/overlap
+tuning is deferred to M4 (CPI target there).
 
 ### 3.2 Datapath and hazards
 
 - One 32-bit ALU incl. funnel shifter (1 cycle). Regfile 2R1W, 32×32 in **LCs**
   (distributed — keeps BRAM for ROM).
-- Full bypass MEM/WB→EX operand muxes; load-use stall only.
+- **No forwarding muxes and no load-use stall in the M1 schedule** — the
+  IDLE cycle between WB and ID (see §3.1) makes RAW hazards structurally
+  impossible. D5's full bypass MEM/WB→EX and tighter overlap are the M4
+  tuning lever.
 - MUL/DIV use shadow accumulators (no regfile port pressure).
   - MUL: 4-bit/cycle shift-add, **fixed 8 cycles**, LUT-based (see risk R4 —
     do *not* depend on DSP4 inference for the core multiplier).
@@ -279,6 +293,25 @@ spike** on the identical binary. (Bonus: RVFI trace diff against spike.)
 
 ## Change log
 
+- 2026-08-12 — M1 P3: **rv32i formal prove green** (deepwork oracle gate:
+  APPROVE WITH FIXES). The M1 core is proven against the riscv-formal RV32I
+  model suite: 36 instruction checks + pc_fwd by k-induction (smtbmc yices,
+  RESET_CYCLES 8, insn depth 48), reg/pc_bwd by bmc (their forward-looking
+  checker state is not induction-friendly), cover non-vacuous. §3.1/3.2 body
+  updated to the implemented hazard-free schedule (IDLE between WB and ID, no
+  forwarding; D5 deferred to M4 — see deepwork file). Formal wrapper +
+  memory model at formal/up5k_rv/; runner `make formal-m1` / `formal-m1-smoke`.
+  M1 scoping assumptions (checks.cfg [assume]): retired PCs, load/store
+  addresses, and control-flow targets 4-aligned — the trap-less M1 core cannot
+  produce the models' spec_trap=1 for unaligned accesses; D9 traps land in M2
+  and the assumptions drop. Known formal gap (reference-consistent, recorded
+  per §5.1): load *data* path is not pinned by the insn checks (spec extracts
+  from the core's own rvfi_mem_rdata) — covered by DV (tb_lsu/tb_core); a
+  shared-RAM wrapper or dmem checks are M2/M5. Two core bugs found by the
+  suite and fixed: branch compare used the immediate instead of rs2 (decoder
+  alu_b_sel), and rvfi_rd_addr leaked the raw rd field on non-writing
+  retirements (poisoned the reg-check shadow). Also fixed: reserved OP
+  encodings with funct7=0100000 and funct3∉{000,101} now decode as NOP.
 - 2026-08-12 — M1 P2: hazard-free phase schedule implemented (deepwork
   refinement, pending P4 oracle approval). ID→EX→(MEM)→WB with one IDLE cycle
   inserted between WB and ID, so the ID-stage register read happens a full

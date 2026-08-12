@@ -12,7 +12,7 @@ BUILD_DIR := build
 # Environment bootstrap (sources toolchain PATH + defines REPO_ROOT).
 ENV_SH := scripts/env.sh
 
-.PHONY: env lint sim-hello p2-tests formal formal-smoke formal-smoke-generate synth clean
+.PHONY: env lint sim-hello p2-tests formal formal-smoke formal-smoke-generate formal-m1 formal-m1-smoke synth clean
 
 ## env -- print pinned tool versions (M0 provisioning must be complete).
 env:
@@ -45,6 +45,18 @@ p2-tests:
 ## formal -- placeholder until M1.
 formal:
 	@echo "formal: not yet implemented (M1)"
+
+## formal-m1 -- M1 P3: riscv-formal rv32i prove for our RV32I core (37 insn +
+## reg/pc_fwd/pc_bwd consistency + cover = 41 checks). Requires a native-FS sby
+## workdir (auto: /tmp/up5k-m1-sby; the repo's virtiofs mount breaks sby workdirs).
+formal-m1:
+	@source $(ENV_SH); \
+	scripts/formal_m1.sh
+
+## formal-m1-smoke -- fast bmc subset of the rv32i suite (CI per-PR smoke).
+formal-m1-smoke:
+	@source $(ENV_SH); \
+	scripts/formal_m1.sh --smoke
 
 ## formal-smoke -- M0 toolchain de-risk: run the green stock-picorv32 subset
 ## via riscv-formal + SymbiYosys (see scripts/formal_smoke.sh).

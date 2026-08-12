@@ -359,7 +359,12 @@ module rv32i_core (
   assign rvfi_rs2_addr  = dec_rs2_addr;
   assign rvfi_rs1_rdata = rs1_q;
   assign rvfi_rs2_rdata = rs2_q;
-  assign rvfi_rd_addr   = dec_rd_addr;
+  // rd_addr is 0 for any retirement that does not write the register file.
+  // The riscv-formal reg check builds its shadow register file from
+  // rvfi_rd_addr/rvfi_rd_wdata of every retirement; a non-writing retirement
+  // (NOP/ecall/ebreak/csr/garbage) must not look like a write to a random
+  // register, or the shadow is poisoned and later reads spuriously fail.
+  assign rvfi_rd_addr   = dec_rd_we ? dec_rd_addr : 5'd0;
   assign rvfi_rd_wdata  = dec_rd_we ? ((dec_rd_addr == 5'd0) ? 32'd0
                                                              : rd_wdata_comb)
                                     : 32'd0;

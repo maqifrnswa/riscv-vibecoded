@@ -106,10 +106,38 @@ module decoder (
                 alu_op_o = ALU_ADD;
               end
             end
-            3'b001: alu_op_o = ALU_SLL;
-            3'b010: alu_op_o = ALU_SLT;
-            3'b011: alu_op_o = ALU_SLTU;
-            3'b100: alu_op_o = ALU_XOR;
+            3'b001: begin  // SLL: funct7 must be 0000000 (0100000 is reserved)
+              if (funct7 != 7'b0000000) begin
+                rd_we_o  = 1'b0;
+                is_nop_o = 1'b1;
+              end else begin
+                alu_op_o = ALU_SLL;
+              end
+            end
+            3'b010: begin  // SLT
+              if (funct7 != 7'b0000000) begin
+                rd_we_o  = 1'b0;
+                is_nop_o = 1'b1;
+              end else begin
+                alu_op_o = ALU_SLT;
+              end
+            end
+            3'b011: begin  // SLTU
+              if (funct7 != 7'b0000000) begin
+                rd_we_o  = 1'b0;
+                is_nop_o = 1'b1;
+              end else begin
+                alu_op_o = ALU_SLTU;
+              end
+            end
+            3'b100: begin  // XOR
+              if (funct7 != 7'b0000000) begin
+                rd_we_o  = 1'b0;
+                is_nop_o = 1'b1;
+              end else begin
+                alu_op_o = ALU_XOR;
+              end
+            end
             3'b101: begin
               if (insn_i[30]) begin
                 alu_op_o = ALU_SRA;
@@ -117,8 +145,22 @@ module decoder (
                 alu_op_o = ALU_SRL;
               end
             end
-            3'b110: alu_op_o = ALU_OR;
-            3'b111: alu_op_o = ALU_AND;
+            3'b110: begin  // OR
+              if (funct7 != 7'b0000000) begin
+                rd_we_o  = 1'b0;
+                is_nop_o = 1'b1;
+              end else begin
+                alu_op_o = ALU_OR;
+              end
+            end
+            3'b111: begin  // AND
+              if (funct7 != 7'b0000000) begin
+                rd_we_o  = 1'b0;
+                is_nop_o = 1'b1;
+              end else begin
+                alu_op_o = ALU_AND;
+              end
+            end
             default: begin
               rd_we_o  = 1'b0;
               is_nop_o = 1'b1;
@@ -211,6 +253,7 @@ module decoder (
           is_branch_o     = 1'b1;
           branch_funct3_o = funct3;
           rd_addr_o       = 5'd0;  // rd field is part of the B-imm
+          alu_b_sel_o     = OPB_RS2;  // compare rs1 vs rs2; imm_b is only the target
         end else begin
           is_nop_o = 1'b1;
           rd_addr_o = 5'd0;
