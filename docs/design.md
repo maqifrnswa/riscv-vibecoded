@@ -11,9 +11,20 @@ built entirely with open-source tools.
 - **Use case:** the core will run in a system that reads an ADC and does DSP on
   the same FPGA. The core must therefore be **small** — it leaves most of the
   5280-LC budget for the ADC + DSP logic — while still performing decently.
-- **Performance bar (customer):** CoreMark/MHz × Fmax(MHz) > 20. Estimated
-  outcome: ~2.0–2.5 CM/MHz × 48 MHz (HFOSC direct) = **96–120**, i.e. 5–6×
-  margin. At stretch Fmax (60–80 MHz via PLL) the margin is larger.
+- **Performance bar (customer):** CoreMark/MHz × Fmax(MHz) > 20. Review
+  re-derivation (2026-08-12): from the §3.1 schedule (CPI ≈ 4–5, IPC ≈
+  0.2–0.25) and CoreMark ≈ 0.3–0.4 M instructions/iteration (cross-checked
+  against known cores, ±30%), the honest pre-tuning projection is
+  **~0.6–0.9 CM/MHz**; the M4 D5-tuning target is **≥ 1.0 CM/MHz** (≤ ~1.1
+  realistic ceiling). At HFOSC 48 MHz that is ~29–48 vs the bar of 20 — it
+  clears with ~1.5–2× margin, **not** the earlier 5–6× claim (the old
+  2.0–2.5 CM/MHz estimate was wrong — see change log 2026-08-12). The
+  32 MHz fallback (~19–22) no longer clears the bar and is demoted to a
+  debug clock only.
+- **Performance aspiration (long-term):** approach, then exceed, the Pareto
+  frontier in `docs/pareto_frontier.csv` (CM/MHz vs LUT area, from a sibling
+  optimized core — see §1.1). v1 does not need to reach it: get a working
+  system first (M4 baseline measure), then iterate on it.
 - **"Educational" means:** well organized, clearly documented, follow the
   lowRISC/Ibex coding style. Not a toy; a real, usable core.
 - **Acceptance demo:** run CoreMark bare-metal with output written to a
@@ -33,6 +44,50 @@ built entirely with open-source tools.
 Open-source support: Yosys (`synth_ice40`), nextpnr-ice40, icestorm — all
 first-class for UP5K.
 
+### 1.1 Pareto frontier reference (`docs/pareto_frontier.csv`)
+
+`docs/pareto_frontier.csv` is the data of record: 15 Pareto-optimal configs
+from a sibling optimized core's design-space sweep (the figure in
+`docs/pareto_frontier.png`, if present, is just its plot). Columns: six
+feature flags (REG_MISPREDICT_TOTAL, PARALLEL_EQUAL, USE_AGU, USE_BRANCH_AGU,
+USE_BRANCH_PREDICTOR, USE_ZMMUL), LUTs, Fmax (MHz), CoreMark/MHz, and
+Fmax × CoreMark/MHz (Y). The frontier is a **two-step curve**:
+
+| Frontier region | Area (LUTs) | CM/MHz | Y (Fmax × CM/MHz) |
+|---|---|---|---|
+| Tier 1 (no ZMMUL) | 1632–1734 | 0.68–0.78 | 12.9–15.9 |
+| gap (no points) | 1734–1843 | — | — |
+| Tier 2 (ZMMUL) | 1843–1931 | 1.61–1.82 | 29.0–37.5 |
+
+- **The Tier-2 step is the Zmmul multiply unit** — every Tier-2 config sets
+  USE_ZMMUL=1; it costs ~200 LUTs (flag-identical pairs) and buys ~2.3×
+  CM/MHz. (The figure's "discrete feature boundary" was exactly this.) The
+  sibling's Fmax is 16.5–23.3 MHz — its own clock target, not ours — so
+  **CM/MHz vs LUTs is the portable comparison**; Y is the figure's axis only.
+- No frontier config uses USE_BRANCH_PREDICTOR (prediction never won in this
+  sweep) — supporting D4. Within a tier, REG_MISPREDICT_TOTAL=1 trades
+  CM/MHz for Fmax (Tier 2: 1.82 → 1.61 CM/MHz, 17.3 → 23.3 MHz).
+- Frontier endpoints: min area 1632 LUTs (0.78 CM/MHz, Y 12.9); max CM/MHz
+  1.82 at 1843 LUTs (Y 29.0); max Y 37.5 at 1931 LUTs (1.61 CM/MHz, config
+  1,1,1,0,0,1).
+- up5k-rv position: the ~1800–2400 LC core budget sits inside the gap/Tier 2.
+
+**Aspiration ladder (start small, iterate on the working system):**
+
+1. M4: working CoreMark system in sim; measure real CM/MHz; D5 tuning to the
+   ≥ 1.0 CM/MHz target (already above Tier 1's 0.78, midway to Tier 2's
+   1.61).
+2. M5/M6: silicon measure; goal: approach the Tier-2 band (~1.6 CM/MHz at
+   ~1850–1930 LUTs — the real M unit from M3 is exactly the feature that got
+   the sibling there).
+3. Stretch (M6+/M8): exceed the frontier — > 1.82 CM/MHz, or ≥ 1.6 CM/MHz at
+   < 1843 LUTs — via microarch iteration (fetch buffer depth, branch
+   handling, tighter overlap) and Fmax (PLL 60–80 MHz, which also lifts Y at
+   our higher clock).
+
+The frontier is the long-term target, not a v1 gate; each step re-runs the
+formal suite and re-measures.
+
 ## 2. Decision summary
 
 | # | Decision | Rationale |
@@ -48,13 +103,13 @@ first-class for UP5K.
 | D9 | Misaligned load/store → **machine trap**, not hardware split | Spec-compliant, halves LSU logic, keeps formal bounded |
 | D10 | Core↔SoC bus: minimal single-master **"SBus"** (valid/ready, byte-enables, no pipelining) | One master, ≤1 outstanding request; ~200 lines; formal-friendly; wrap with an adapter later if a peripheral demands it |
 | D11 | Memory map: 8 KB BRAM ROM @0x0, 32 KB SPRAM @0x10000, MMIO @0x2000_0000+; unmapped → read-0/write-ignore | ROM too small for CoreMark image; SPRAM has no reliable bitstream init → UART loader is the robust boot path |
-| D12 | Clock: **HFOSC 48 MHz direct**; PLL only as stretch | Removes PLL config risk; bar met at 48 MHz; fallback divider to 32 MHz still clears the bar |
+| D12 | Clock: **HFOSC 48 MHz direct**; PLL only as stretch | Removes PLL config risk; bar met at 48 MHz. **Amended (2026-08-12 review):** the 32 MHz fallback no longer clears the bar under the corrected §1 estimate, and the M5/M6 real-UART bootloader is baud-rate-sensitive — HFOSC ±5% exceeds UART tolerance at 115200. The UPduino 3.1 has a 12 MHz on-board oscillator: plan is 12 MHz XO + PLL → 48 MHz from M5. HFOSC remains fine for M4 (sim-only) and early bring-up |
 | D13 | Formal: riscv-formal `rv32imc` (prove/live) with ALTOPS; M-extension arithmetic closed by golden DV + bounded-width formal + determinism property | ALTOPS does **not** bit-verify mul/div results — the gap is explicitly owned (§5.2) |
 | D14 | **SystemVerilog throughout**, consumed via Yosys **`read_slang`** (built-in since Yosys 0.67) for RTL, RVFI harness, *and* sby scripts. Interfaces/modports/structs/packages allowed. | sv-elab/slang frontend gives near-complete synthesizable SV; riscv-formal generated files stay on `read_verilog -sv` — mixing is supported. Toolchain must be pinned ≥ 0.67 |
 | D15 | DV: Verilator (2-state) + cocotb; iverilog 4-state smoke for reset/X; spike cross-check of CoreMark binary | 2-state blind spots covered by formal + 4-state smoke |
 | D16 | Coding style: **lowRISC/Ibex** style (see docs/standards.md) | Consistency + reviewability |
 | D17 | Board: **UPduino 3.1**; benchmark: **our core only** (no VexRiscv comparison); deliverable: full SoC demo | Customer decisions |
-| D18 | **ALTOPS M-ops in the core until M3**: the 8 M instructions implement `(rs1±rs2)^mask` combinationally | The rv32imc models assert `rvfi_rd_wdata` byte-exact (ALTOPS is a fake-op contract, not "determinism only"); real MUL/DIV (D6) land in M3 with wrapper-side ALTOPS compensation |
+| D18 | **ALTOPS M-ops in the core until M3**: the 8 M instructions implement `(rs1±rs2)^mask` combinationally | The rv32imc models assert `rvfi_rd_wdata` byte-exact (ALTOPS is a fake-op contract, not "determinism only"); real MUL/DIV (D6) land in M3 with **core-side** ALTOPS substitution (a `FormalAltops` parameter inside the M unit, the picorv32 pattern — `RISCV_FORMAL_ALTOPS` in `third_party/picorv32.v`): the real 8/33-cycle sequencer stays in the proof, only the arithmetic result is substituted. Wrapper-side compensation is rejected (2026-08-12 review): the core would write real results to the regfile while the channel reports fake ones, breaking the `reg` check's shadow-regfile consistency and making the M checks vacuous |
 | D19 | **mcycle/mcycleh are read-only** (spec-legal); csrw writes are reported on the rvfi channel but not applied | The riscv-formal csrc_upcnt/inc counter checks require a strictly monotonic counter — their write-tracking (`csr_written`) is cleared by any intervening retirement, so a writable counter cannot satisfy them; `rdcycle` (M4 CoreMark timing) only reads |
 
 ## 3. Microarchitecture
@@ -132,7 +187,10 @@ mcause codes: 0 instruction-address-misaligned, 2 illegal-instruction,
 Trap entry (M-mode): `mepc ← PC` of the trapping instruction; `mtval ←` faulting
 address for misaligned load/store, else 0 (ecall/ebreak/illegal → mtval=0);
 `mcause ← code`; `mstatus ← {MPIE=MIE, MIE=0, MPP=11}`; `PC ← mtvec & ~3`.
-Trap exit (`mret`): `mstatus ← {MIE=MPIE, MPIE=1, MPP=00}`; `PC ← mepc`.
+Trap exit (`mret`): `mstatus ← {MIE=MPIE, MPIE=1, MPP=11}`; `PC ← mepc`.
+In this M-mode-only core **MPP is WARL=M** (spec: without U-mode, xPP must
+hold M) — the M2 RTL sets MPP←00 on mret and makes MPP writable
+(`rtl/core/csr_file.sv:95,118`); the one-line fix is scheduled in M3.
 `wfi` = NOP; `fence`/`fence.i` = NOP (spec-legal, no I-cache).
 
 **M2 design decisions (Gate-1 reviewed):**
@@ -151,7 +209,8 @@ Trap exit (`mret`): `mstatus ← {MIE=MPIE, MPIE=1, MPP=00}`; `PC ← mepc`.
 - **ALTOPS M-ops (D18):** the 8 M instructions implement the ALTOPS fake ops
   `(rs1±rs2)^mask` combinationally — the rv32imc models assert `rvfi_rd_wdata`
   byte-exact. Masks truncate to `[31:0]` (XLEN=32). Real fixed-latency MUL/DIV
-  (D6) land in M3 with wrapper-side ALTOPS compensation.
+  (D6) land in M3 with **core-side** ALTOPS substitution (see D18, amended
+  2026-08-12).
 - **c_ebreak (0x9002):** matches **no** insn model — the `c_add` model requires
   rs2≠0 (`insn_c_add.v:44`; 0x9002 has rs2=00000) and `c_jalr` requires rs1≠0
   (0x9002 has rs1=00000). The core traps on c.ebreak (mcause=3, spec-compliant)
@@ -248,16 +307,28 @@ external button; internal reset held ≥ 8 cycles (formal reset depth).
 - **M0 de-risk:** run the *stock* picorv32 binding through sby in CI before a
   line of our RTL exists — proves the formal toolchain first.
 - Config: `spec = rv32imc`; ALTOPS on (default); intr channel constrained low.
-- **Depths** `(reset, exec, trigger)` = **(8, 48, 2)**: exec covers
-  2 (IF1/IF2) + 1 (ID) + 33 (DIV) + 2 (WB) + margin. Fixed-latency MUL/DIV
-  (D6) is what lets exec depth be a small constant.
-- Modes: `prove` (bmc + induction; engines `smtbmc yices/z3` + `abc pdr`) for
-  I/C coverage; `live` with fairness on reset-deassert (no deadlock); `cover`
-  for reset→first-retire sanity.
-- Memory model: the wrapper's RAM **is** the memory the core fetches and
-  loads/stores from, and stores update the same array the checker reads —
-  this catches fetch/execute coherence and execute-after-store. Von Neumann
-  unification (D2) makes this trivially sound.
+- **Depths:** `insn 48` (covers 2 fetch + 1 ID + 33 DIV + 1 WB + margin),
+  `reg 8 17`, `pc_fwd 8 48`, `pc_bwd 8 21`, `cover 1 15`, `liveness 1 10 30`,
+  `csrw 48`, `csrc_* 1 48` (the "(reset, exec, trigger)" tuple of earlier
+  drafts is not this binding's config). **M3 re-tune required:** the fixed
+  33-cycle DIV stretches the retire-to-retire gap to ~36–38 cycles, breaking
+  the 20-cycle liveness window (`liveness 1 10 30`) — retune to
+  `liveness 1 10 50` before the real M units land. Same for the bmc smoke
+  subset: each check fires at one exact cycle (48), so `insn_div` needs a
+  reachable check cycle or it is vacuously green (the M0 R12 lesson).
+- Modes: `prove` (bmc + induction; engine `smtbmc yices` — z3 rejected at M1
+  P1a, and `abc pdr` never converged here: M0 timeout at 1800 s, M1
+  oscillation) for I/C coverage; `live` with fairness on reset-deassert (no
+  deadlock; at M2 proven as bmc-mode bounded progress — see the roadmap M2
+  honest statement); `cover` for reset→first-retire sanity.
+- Memory model: the M1/M2 wrapper exposes **free-input read data** — it has
+  no RAM array, so today the insn checks pin opcode/address/rmask lanes but
+  **not load data**, and no fetch/execute-coherence or execute-after-store
+  property is checked (an earlier draft overclaimed this). Von Neumann
+  unification (D2) makes the planned shared-RAM wrapper trivially sound: when
+  the wrapper's RAM is the memory the core fetches and stores to, stores
+  update the same array the checker reads. Closing this gap (shared-RAM
+  wrapper / dmem checks) is an explicit M5 task.
 
 ### 5.2 Closing the ALTOPS gap (M extension) — explicit ownership
 
@@ -269,13 +340,21 @@ determinism* but **not the arithmetic result**. Three layers close it:
    REMU compared against an independent Python reference (different algorithm
    than RTL, e.g. long division vs non-restoring). Same tests compiled as
    bare-metal C (compiler-emitted mul/div) and cross-checked against **spike**.
-2. **Bounded-width formal:** separate sby `prove` with operands truncated to
-   8/16 bits against a *structurally different* reference (shift-add vs
-   4-bit/cycle for mul; restoring vs non-restoring for div). Bit-blasting
-   these widths with `abc pdr` is tractable and proves the datapath wiring —
-   not just self-consistency. Full-width div proof explicitly out of scope.
-3. **Determinism/purity property:** prove under ALTOPS that results are a pure
-   function of rs1/rs2 — catches the classic sequential-divider state-leak bug.
+2. **Bounded-width formal:** separate sby runs with operands truncated to
+   8/16 bits against a *genuinely* different reference — the combinational
+   `*`/`%` operators (or a per-bit restoring divider), NOT shift-add at a
+   different radix, so a shared sign-extension bug can't hide in both.
+   **bmc-first with `smtbmc`** (unroll the fixed 33-cycle sequencer, depth
+   ≈ 38; a bit-blasted 16-bit divide is comfortably in boolector/yices
+   range): `abc pdr` has never converged in this repo (M0 timeout 1800 s,
+   M1 oscillation) and is demoted to a stretch engine. 16-bit is the primary
+   width (8-bit misses lane-dependent wiring). Full-width div proof
+   explicitly out of scope.
+3. **Determinism:** with core-side ALTOPS substitution (D18 amended) the real
+   sequencer stays in the proof, and determinism of the real result is
+   implied by the (2) equivalence proof over the unrolled sequencer
+   (result == f(rs1, rs2)). A separate wrapper-side "determinism property"
+   was dropped in the 2026-08-12 review as redundant/vacuous.
 
 **Honest formal statement for the report:** "ISA-level proof for I/C + trap/CSR
 semantics; M extension proven for opcode/operand semantics formally, arithmetic
@@ -328,7 +407,7 @@ spike** on the identical binary. (Bonus: RVFI trace diff against spike.)
 
 | # | Risk | L | I | Mitigation |
 |---|---|---|---|---|
-| R1 | Fmax < 48 MHz (SPRAM→decode, WB paths) | M | H | Registered WB; shallow decode; 32 MHz divider fallback still clears bar; PLL stretch |
+| R1 | Fmax < 48 MHz (SPRAM→decode, WB paths) | M | H | Registered WB; shallow decode; 32 MHz divider demoted to a debug clock (2026-08-12 review — under the corrected §1 estimate it no longer clears the bar); PLL to 60–80 MHz is the real margin lever |
 | R2 | Formal div-depth blowup (exec=48, 33-cycle div) | M | M | I/C-only prove first; M via bmc + operand-constrained proofs; determinism property is cheap; arithmetic truth lives in golden DV |
 | R3 | C-ext RVFI convention / decode bugs | M | H | Follow reference binding exactly; directed tests per C opcode; riscv-formal rv32imc enumerates all C encodings |
 | R4 | SPRAM/DSP4 quirks (registered read, no init, DSP inference version-dependent) | M | M | Core multiplier is LUT shift-add, not DSP4; document + early hardware test (M6); loader owns undefined SPRAM contents |
@@ -347,12 +426,44 @@ spike** on the identical binary. (Bonus: RVFI trace diff against spike.)
 ## 9. Open items / assumptions
 
 - None blocking. Assumptions: SPRAM contents undefined at power-up (loader
-  handles); HFOSC 48 MHz accurate enough (no baud-rate-sensitive UART in v1 —
-  fake UART is memory-mapped); reset button on UPduino 3.1 used for reset.
-- Confirm UPduino 3.1 variant specifics (e.g., 5K vs 1K part) at M6 bring-up.
+  handles); HFOSC 48 MHz is fine for the sim-only M4 fake UART (memory-mapped),
+  but the M5/M6 real-UART loader is baud-rate-sensitive → clock path becomes
+  12 MHz XO + PLL from M5 (D12 amended); reset button on UPduino 3.1 used for
+  reset.
+- Confirm UPduino 3.1 variant specifics (e.g., 5K vs 1K part) and the
+  programming path (SPI flash vs FTDI-SRAM) at M6 bring-up.
 
 ## Change log
 
+- 2026-08-12 — **M0–M2 design/workplan review** (oracle + explorer + observer;
+  fixes folded into this doc): (1) **performance estimate corrected** —
+  2.0–2.5 CM/MHz was incompatible with the §3.1 CPI≈4–5 schedule; honest
+  projection ~0.6–0.9 pre-tuning, ≥ 1.0 CM/MHz M4 target (≤ ~1.1 ceiling);
+  bar still clears at 48 MHz (~1.5–2×) but the 32 MHz fallback no longer
+  does (R1 mitigation amended). (2) **Pareto frontier aspiration added**
+  (§1.1, data of record `docs/pareto_frontier.csv` — 15 Pareto-optimal
+  configs, CM/MHz vs LUTs): v1 starts small and iterates toward Tier 2
+  (CM/MHz 1.61–1.82 at 1843–1931 LUTs); stretch exceeds the 1.82 CM/MHz /
+  Y 37.5 frontier max. The Tier-2 step is the sibling's Zmmul unit — the
+  M unit is the big CM/MHz lever. (3) **D18 amended** — wrapper-side ALTOPS
+  compensation rejected (breaks `reg`-check consistency; makes the M checks
+  vacuous); core-side `FormalAltops` substitution in the M unit (picorv32
+  pattern, `picorv32.v:2417/2497/2516`) instead. (4) **M3 formal re-tune
+  recorded** — the fixed 33-cycle DIV stretches the retire gap to ~36–38
+  cycles, breaking the 20-cycle liveness window: retune `liveness 1 10 50`;
+  bmc-smoke `insn_div` exact-cycle vacuity to be re-checked. (5) **§5.2
+  revised** — bounded-width proofs bmc-first with `smtbmc` (abc pdr never
+  converged in this repo); reference must be genuinely different
+  (combinational `*`/`%`, not shift-add at another radix); determinism
+  property folded into the equivalence proof. (6) **§5.1 fixed** — wrapper
+  is free-input read-data (execute-after-store overclaim corrected); engine
+  list corrected; depth config spelled out. (7) **mstatus.MPP WARL=M** —
+  M-mode-only core must hold MPP=11; M2 RTL writes 00 on mret
+  (`csr_file.sv:118`) — fix scheduled M3. (8) **D12 amended** — the M5/M6
+  real-UART loader is baud-rate-sensitive; HFOSC ±5% fails at 115200 →
+  12 MHz XO + PLL from M5. (9) M5 gap items scheduled (shared-RAM wrapper,
+  fetch_unit stale-response suppression, real UART peripheral); spike +
+  cocotb pinned at M3; CI wording vs no-CI reality noted in roadmap M0.
 - 2026-08-12 — **M2 DONE** (deepwork P1–P3; oracle gates 1+2 APPROVE): C
   extension, traps, CSRs. `rv32imc` prove green (78/78 checks, `make
   formal-m2`); liveness green in bmc mode (reference-binding-equivalent

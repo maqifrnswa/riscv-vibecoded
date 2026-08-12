@@ -10,6 +10,10 @@ See [handoff.md](handoff.md) for the session protocol.
 - Docs/backbone committed to git.
 - **Next action: M3** (MUL/DIV units — M-arithmetic closure).
 - Active milestone: **M2 done** (2026-08-12; see M2 section).
+- Post-M2 design/workplan review complete (2026-08-12): perf estimate
+  corrected, D18 → core-side ALTOPS substitution, M3 formal re-tune
+  (liveness window), Pareto frontier aspiration (design.md §1.1). The M3–M7
+  task lists below incorporate it.
 
 ## Milestone tracking
 
@@ -71,6 +75,8 @@ Status legend: `TODO` / `IN PROGRESS` / `BLOCKED` / `DONE`.
   trivial core through sby (exercises the read_slang↔read_verilog mixing).
   Working commands: `make env`, `make lint`, `make sim-hello`,
   `make formal-smoke`.
+  Note (2026-08-12 review): the "in CI" exit-criteria wording — no CI exists
+  yet (Makefiles were the M0 fallback); real CI lands at M7.
 
 ## M1 — RV32I core + RVFI
 
@@ -145,50 +151,79 @@ Status legend: `TODO` / `IN PROGRESS` / `BLOCKED` / `DONE`.
 
 - **Objective:** parameterized M unit closed three ways (design.md §5.2).
 - **Tasks:** 4-bit/cycle shift-add MUL (8 cyc); non-restoring DIV (33 cyc);
-  `M` parameter (default on); bounded-width formal proofs; golden-model cocotb
-  DV; determinism property.
-- **Exit criteria:** full rv32imc suite green; M-arithmetic closure evidence
-  committed (golden DV + bounded proofs).
+  `M` parameter (default on); bounded-width formal proofs (**bmc-first**,
+  §5.2 revised); golden-model cocotb DV; **core-side ALTOPS substitution** in
+  the M unit (`FormalAltops` param, D18 amended — wrapper-side compensation
+  rejected); **formal re-tune before the real units land**: `liveness 1 10 50`
+  (the 33-cycle DIV breaks the 20-cycle window — retire gap ~36–38) and
+  bmc-smoke `insn_div` check-cycle re-tune (exact-cycle semantics — vacuity
+  risk); **pin spike + cocotb** in MANIFEST.md/env.sh (load-bearing for the
+  exit criteria); DIV/DIVU/REM/REMU corner cases in DV (÷0, INT_MIN/−1,
+  REM-by-0, MULH/MULHSU/MULHU sign patterns); **mstatus.MPP WARL=M fix**
+  (csr_file.sv — M-mode-only core; mret sets MPP=11, not 00); `M=0` policy
+  (document `M=1` as the proven config, or add a separate `rv32ic` run).
+- **Exit criteria:** full rv32imc suite green — **ALTOPS config**: the real-M
+  *control path* is proven, arithmetic truth carried by golden DV + bounded
+  proofs + spike cross-check (state it this way in the report); golden DV +
+  bounded proofs committed.
 - **Handoff notes:** *(empty)*
 
 ## M4 — CoreMark port + performance
 
-- **Objective:** CoreMark score in simulation, cross-checked against spike.
-- **Tasks:** CoreMark port (barebones copy, ee_printf → fake-UART MMIO,
-  rdcycle timing, MAIN_HAS_NOARGC=1, TOTAL_DATA_SIZE=2000); BSP (crt0, linker
-  script, newlib syscalls); end-to-end sim; spike hash/score cross-check;
-  tuning pass (fetch overlap, branch penalty) until CPI target.
-- **Exit criteria:** valid ≥10 s CoreMark run in sim; CoreMark/MHz × Fmax(est)
-  > 20 demonstrated; spike agreement.
+- **Objective:** working CoreMark system in sim (start small — the Pareto
+  frontier is a long-term target, not a v1 gate; see design.md §1.1), then
+  the first tuning pass.
+- **Tasks:** CoreMark port (barebones copy, ee_printf → **TB-level fake-UART
+  MMIO stub** @0x2000_0000 + flat SBus SPRAM model — the SoC is M5;
+  rdcycle timing, MAIN_HAS_NOARGC=1); **TOTAL_DATA_SIZE=2000 vs the 32 KB
+  SPRAM budget check in sim** (likely overflow — fallback 1500 or a 64 KB
+  map); BSP (crt0, linker script, newlib syscalls); end-to-end sim; spike
+  hash/score cross-check; D5 tuning pass (forwarding, tighter overlap,
+  remove the IDLE cycle).
+- **Exit criteria:** valid ≥10 s CoreMark run in sim (reduced iterations for
+  iteration loops — the 10 s certification run costs ~480M cycles);
+  **measured CM/MHz ≥ 1.0 in sim** (numeric CPI target — replaces the
+  unquantified "CPI target met" and the unfalsifiable Fmax(est) term);
+  **`make formal-m2` full suite re-green after the schedule change** (D5
+  edits rtl/core/); spike agreement.
 - **Handoff notes:** *(empty)*
 
 ## M5 — SoC v1 + bootloader
 
 - **Objective:** full SoC demo.
 - **Tasks:** SBus + decoder; BRAM ROM; SPRAM wrapper; fake-UART (write-only
-  reg + FIFO); timer; GPIO; ROM bootloader + UART download protocol;
-  tools/uart_loader.py; demos (blink, echo, CoreMark runner); SoC decoder +
-  bounded-response sby proves.
+  reg + FIFO); **real UART RX/TX peripheral + RX register in the memory map**
+  (the bootloader and echo demo need one — previously unscheduled); timer;
+  GPIO; ROM bootloader + UART download protocol; tools/uart_loader.py; demos
+  (blink, echo, CoreMark runner); **shared-RAM/dmem formal wrapper — closes
+  the load-data-path + execute-after-store gap** (design.md §5.1, deferred
+  from M2); **fetch_unit stale-response suppression** for registered-latency
+  slaves (M1 note) + `make formal-m2` re-run after the rtl/core/ edit;
+  **D12 clock decision**: 12 MHz XO + PLL → 48 MHz (UART accuracy — HFOSC
+  ±5% fails at 115200); SoC decoder + bounded-response sby proves.
 - **Exit criteria:** SoC formal proves green; CoreMark runs end-to-end in sim
-  via loader path.
+  via the loader path; load-data/execute-after-store checks green.
 - **Handoff notes:** *(empty)*
 
 ## M6 — FPGA bring-up (UPduino 3.1)
 
 - **Objective:** CoreMark on real silicon.
 - **Tasks:** constraints (.pcf); synth_ice40 + nextpnr-ice40 + icetime;
-  timing closure ≥ 48 MHz; iceprog; loader over real USB-UART; CoreMark on
-  hardware; score report vs sim.
+  timing closure ≥ 48 MHz; **confirm the programming path (SPI flash vs
+  FTDI-SRAM)**; iceprog; loader over real USB-UART; CoreMark on hardware;
+  score report vs sim.
 - **Exit criteria:** timing-closed bitstream; CoreMark score on hardware
-  committed to the report.
+  committed to the report **with the Pareto frontier comparison (design.md
+  §1.1) — the first real data point for the aspiration ladder**.
 - **Handoff notes:** *(empty)*
 
 ## M7 — Formal CI hardening + docs
 
 - **Objective:** durable verification story.
-- **Tasks:** nightly full suite with timeouts; per-PR smoke; docs review
-  (design.md vs implementation drift); risk review; report drafting
-  (honest formal statement per design.md §5.2).
+- **Tasks:** nightly full suite with timeouts; per-PR smoke; **revisit sby
+  `mode live` / suprove** (deferred from M2 — pending a toolchain update);
+  docs review (design.md vs implementation drift); risk review; report
+  drafting (honest formal statement per design.md §5.2).
 - **Exit criteria:** CI pipeline stable; docs accurate; risk review done.
 - **Handoff notes:** *(empty)*
 
