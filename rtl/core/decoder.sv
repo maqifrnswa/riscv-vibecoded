@@ -625,6 +625,12 @@ module decoder (
               12'h105: is_nop_o    = 1'b1;  // wfi: NOP (design D7)
               default: is_illegal_o = 1'b1;
             endcase
+          end else if (funct3 == 3'b100) begin
+            // Reserved SYSTEM encoding: NOT a CSR access (the riscv-formal
+            // csr checks require insn[13:12] != 0, so funct3=100 is invisible
+            // to them -- executing it as a CSR would perform an unchecked
+            // write that breaks the counter-model checks).
+            is_illegal_o = 1'b1;
           end else begin
             // CSR instructions (Zicsr subset): funct3 001/010/011/101/110/111.
             is_csr_o   = 1'b1;

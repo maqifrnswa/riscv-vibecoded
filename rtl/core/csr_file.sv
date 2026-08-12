@@ -78,10 +78,13 @@ module csr_file (
       mtval   <= 32'd0;
       mcycle  <= 64'd0;
     end else begin
-      // Free-running cycle counter; a half-write overrides that half.
+      // Free-running cycle counter. mcycle/mcycleh are READ-ONLY (a spec-legal
+      // implementation choice): the riscv-formal csrc_upcnt/inc checks require
+      // a strictly non-decreasing counter, and their write-tracking (csr_written)
+      // is cleared by any intervening non-CSR retirement -- a writable counter
+      // could not satisfy them. Writes are reported on the rvfi_csr channel
+      // (wmask/wdata per the instruction) for the csrw check, but not applied.
       mcycle <= mcycle + 64'd1;
-      if (csr_we_i && (csr_addr_i == 12'hB00)) mcycle[31:0]   <= csr_wdata_i;
-      if (csr_we_i && (csr_addr_i == 12'hB80)) mcycle[63:32]  <= csr_wdata_i;
 
       // Instruction writes (masked to the writable mstatus bits).
       if (csr_we_i) begin

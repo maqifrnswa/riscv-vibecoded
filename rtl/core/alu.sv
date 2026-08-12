@@ -41,16 +41,18 @@ module alu (
       ALU_OR:   result_o = operand_a_i | operand_b_i;
       ALU_AND:  result_o = operand_a_i & operand_b_i;
       // M-extension ALTOPS fake ops (D18): (a +- b) ^ mask, byte-exact vs the
-      // riscv-formal rv32imc models. Masks are the lower 32 bits of the
-      // models' 64-bit constants (XLEN=32).
-      ALU_MUL_ALT:    result_o = (operand_a_i + operand_b_i) ^ 32'h2cdf52a5;
-      ALU_MULH_ALT:   result_o = (operand_a_i + operand_b_i) ^ 32'h15d01651;
-      ALU_MULHSU_ALT: result_o = (operand_a_i - operand_b_i) ^ 32'hea3969ed;
-      ALU_MULHU_ALT:  result_o = (operand_a_i + operand_b_i) ^ 32'hd13db50d;
-      ALU_DIV_ALT:    result_o = (operand_a_i - operand_b_i) ^ 32'h29bbf66f;
-      ALU_DIVU_ALT:   result_o = (operand_a_i - operand_b_i) ^ 32'h8c629acb;
-      ALU_REM_ALT:    result_o = (operand_a_i - operand_b_i) ^ 32'hf5b7d853;
-      ALU_REMU_ALT:   result_o = (operand_a_i - operand_b_i) ^ 32'hbc440241;
+      // riscv-formal rv32imc models. The models XOR the 32-bit add/sub with
+      // the FULL 64-bit mask and truncate to XLEN=32 -- so the effective mask
+      // is the LOW 32 bits of the 64-bit constant (a P2 counterexample caught
+      // the high-half mistake here).
+      ALU_MUL_ALT:    result_o = (operand_a_i + operand_b_i) ^ 32'h5876063e;
+      ALU_MULH_ALT:   result_o = (operand_a_i + operand_b_i) ^ 32'hf6583fb7;
+      ALU_MULHSU_ALT: result_o = (operand_a_i - operand_b_i) ^ 32'hecfbe137;
+      ALU_MULHU_ALT:  result_o = (operand_a_i + operand_b_i) ^ 32'h949ce5e8;
+      ALU_DIV_ALT:    result_o = (operand_a_i - operand_b_i) ^ 32'h7f8529ec;
+      ALU_DIVU_ALT:   result_o = (operand_a_i - operand_b_i) ^ 32'h10e8fd70;
+      ALU_REM_ALT:    result_o = (operand_a_i - operand_b_i) ^ 32'h8da68fa5;
+      ALU_REMU_ALT:   result_o = (operand_a_i - operand_b_i) ^ 32'h3138d0e1;
       default:  result_o = 32'h0;  // unreachable (enum covered above)
     endcase
 

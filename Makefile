@@ -58,6 +58,17 @@ formal-m1-smoke:
 	@source $(ENV_SH); \
 	scripts/formal_m1.sh --smoke
 
+## formal-m2 -- M2 P2: riscv-formal rv32imc prove + live for the RV32IMC core
+## (70 insn + consistency + mcycle counter + liveness + cover checks).
+formal-m2:
+	@source $(ENV_SH); \
+	scripts/formal_m2.sh
+
+## formal-m2-smoke -- fast bmc subset of the rv32imc suite (CI per-PR smoke).
+formal-m2-smoke:
+	@source $(ENV_SH); \
+	scripts/formal_m2.sh --smoke
+
 ## formal-smoke -- M0 toolchain de-risk: run the green stock-picorv32 subset
 ## via riscv-formal + SymbiYosys (see scripts/formal_smoke.sh).
 formal-smoke:

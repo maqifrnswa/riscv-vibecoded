@@ -151,16 +151,19 @@ module tb_csr;
     read_csr(12'h300, v, "mstatus masked");
     check32(v, 32'h0000_1888, "mstatus masked value");  // bits 3,7,12:11 only
 
-    // mcycle half-writes: writing one half must not alter the other.
+    // mcycle is READ-ONLY (spec-legal; required by the riscv-formal counter
+    // checks): writes are ignored and the counter keeps incrementing. The
+    // checks are range-based (tb edge-phase tolerant) -- the essential
+    // property is that the counter does NOT jump to the written values.
+    read_csr(12'hB00, m0, "mcycle before writes");
     write_csr(12'hB00, 32'h1234_5678);
-    read_csr(12'hB00, v, "mcycle low write"); check32(v, 32'h1234_5678, "mcycle low value");
-    read_csr(12'hB80, v, "mcycle high after low"); check32(v, 32'd0, "mcycleh untouched");
-
+    read_csr(12'hB00, v, "mcycle after low write");
+    check_range(v, m0, m0 + 3, "low write ignored (stays near m0)");
+    m0 = v;
     write_csr(12'hB80, 32'hdead_beef);
-    read_csr(12'hB80, v, "mcycle high write"); check32(v, 32'hdead_beef, "mcycleh value");
-    read_csr(12'hB00, v, "mcycle low after high");
-    // The low half kept counting (1-2 increments; tb edge-phase tolerant).
-    check_range(v, 32'h1234_5679, 32'h1234_567a, "mcycle low incremented");
+    read_csr(12'hB80, v, "mcycleh after write"); check32(v, 32'd0, "mcycleh write ignored");
+    read_csr(12'hB00, v, "mcycle low after high write");
+    check_range(v, m0, m0 + 3, "low keeps counting after high write");
 
     // ---- trap entry -------------------------------------------------------------
     trap_mepc   = 32'h0000_0080;

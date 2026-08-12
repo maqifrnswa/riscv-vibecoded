@@ -195,20 +195,20 @@ module tb_m;
 
     check_bit(c_trap[2], 1'b0, "mul not trap");
     check5 (c_rd_addr[2], 5'd3, "mul rd");
-    // ALTOPS: (rs1 + rs2) ^ 0x2cdf52a5 = (5+7) ^ mask
-    check32(c_rd_wdata[2], (32'd12 ^ 32'h2cdf52a5), "mul rd_wdata (5+7)^mask");
+    // ALTOPS: (rs1 + rs2) ^ mask_low32 = (5+7) ^ 0x5876063e
+    check32(c_rd_wdata[2], (32'd12 ^ 32'h5876063e), "mul rd_wdata (5+7)^mask");
 
     check5 (c_rd_addr[3], 5'd4, "div rd");
-    // ALTOPS: (rs1 - rs2) ^ 0x29bbf66f = (5-7) ^ mask
-    check32(c_rd_wdata[3], (32'hffff_fffe ^ 32'h29bbf66f), "div rd_wdata (5-7)^mask");
+    // ALTOPS: (rs1 - rs2) ^ 0x7f8529ec = (5-7) ^ mask
+    check32(c_rd_wdata[3], (32'hffff_fffe ^ 32'h7f8529ec), "div rd_wdata (5-7)^mask");
 
     check5 (c_rd_addr[4], 5'd5, "remu rd");
-    // ALTOPS: (rs1 - rs2) ^ 0xbc440241 = (5-7) ^ mask
-    check32(c_rd_wdata[4], (32'hffff_fffe ^ 32'hbc440241), "remu rd_wdata (5-7)^mask");
+    // ALTOPS: (rs1 - rs2) ^ 0x3138d0e1 = (5-7) ^ mask
+    check32(c_rd_wdata[4], (32'hffff_fffe ^ 32'h3138d0e1), "remu rd_wdata (5-7)^mask");
 
     check5 (c_rd_addr[5], 5'd6, "mulh rd");
-    // ALTOPS: (rs1 + rs2) ^ 0x15d01651 = (5+7) ^ mask
-    check32(c_rd_wdata[5], (32'd12 ^ 32'h15d01651), "mulh rd_wdata (5+7)^mask");
+    // ALTOPS: (rs1 + rs2) ^ 0xf6583fb7 = (5+7) ^ mask
+    check32(c_rd_wdata[5], (32'd12 ^ 32'hf6583fb7), "mulh rd_wdata (5+7)^mask");
 
     // rs1/rs2 pre-state reported on the M retires.
     check32(c_rs1_rdata[2], 32'd5, "mul rs1_rdata");

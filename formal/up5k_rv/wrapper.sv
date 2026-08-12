@@ -1,29 +1,29 @@
-// up5k-rv -- M1 P3: RVFI wrapper + memory model for riscv-formal.
+// up5k-rv -- M1 P3 / M2 P2: RVFI wrapper + memory model for riscv-formal.
 //
 // This module is the `rvfi_wrapper` that the riscv-formal testbench
-// (formal/riscv-formal/checks/rvfi_testbench.sv) instantiates for the rv32i
-// prove. It adapts the real RV32I core (rtl/core/rv32i_core.sv) to the
+// (formal/riscv-formal/checks/rvfi_testbench.sv) instantiates for the rv32imc
+// prove. It adapts the real RV32IMC core (rtl/core/rv32i_core.sv) to the
 // riscv-formal harness:
 //
-//   - Port names/roles match rvfi_testbench: `clock`, `reset`, and the base
-//     RVFI output channel (21 signals). No optional riscv-formal features are
-//     defined (no extamo/rollback/mem_fault/CSR/bus), so RVFI_CONN expands to
-//     exactly these signals and the ports are declared explicitly -- this is
-//     what lets read_slang consume this file (no rvfi_macros.vh dependency).
+//   - Port names/roles match rvfi_testbench: `clock`, `reset`, the base RVFI
+//     output channel (21 signals), and the `mcycle` CSR channel (64-bit) from
+//     [csrs] in checks.cfg. No optional riscv-formal features are defined
+//     (no extamo/rollback/mem_fault/bus), so RVFI_CONN expands to exactly
+//     these signals and the ports are declared explicitly -- this is what lets
+//     read_slang consume this file (no rvfi_macros.vh dependency).
 //   - The testbench's `reset` maps to the core's active-low async `rst_ni`.
-//   - Memory model (M1): the core's single SBus master port is served by a
+//   - Memory model: the core's single SBus master port is served by a
 //     combinationally-ready slave; read data is a FREE PRIMARY INPUT
 //     (`mem_rdata_i`, deliberately left unconnected at rvfi_testbench). This
 //     is the picorv32 reference-binding pattern: instruction words, load data,
 //     and the fetch stream are solver-chosen, and the riscv-formal checkers
 //     constrain the retired instruction via `assume(spec_valid)` on the
-//     channel. The dmem shadow check provides store/load coherence tracking
-//     at a random address from the channel itself.
+//     channel.
 //
-// M1 scoping (see formal/up5k_rv/checks.cfg): load/store effective addresses
-// are assumed aligned to their access width in assume_stmts.vh (generated
-// from the [assume] section). The M1 core has no traps; the spec models
-// require spec_trap=1 for unaligned accesses, which lands with D9 traps in M2.
+// M2 (see formal/up5k_rv/checks.cfg): the M1 alignment [assume] block is gone
+// -- the core traps on the model-pinned unaligned cases (spec_trap=1 checks).
+// The CSR channel reports the mcycle counter family (64-bit mcycle channel
+// covering mcycle/mcycleh via CSRWH).
 
 module rvfi_wrapper (
   input         clock,
@@ -51,7 +51,14 @@ module rvfi_wrapper (
   output [    3 : 0] rvfi_mem_rmask,
   output [    3 : 0] rvfi_mem_wmask,
   output [   31 : 0] rvfi_mem_rdata,
-  output [   31 : 0] rvfi_mem_wdata
+  output [   31 : 0] rvfi_mem_wdata,
+
+  // RVFI CSR channel (M2: [csrs] mcycle; 64-bit per the riscv-formal
+  // counter convention, covering mcycle/mcycleh via CSRWH).
+  output [   63 : 0] rvfi_csr_mcycle_rmask,
+  output [   63 : 0] rvfi_csr_mcycle_wmask,
+  output [   63 : 0] rvfi_csr_mcycle_rdata,
+  output [   63 : 0] rvfi_csr_mcycle_wdata
 );
 
   // ---- core SBus master ------------------------------------------------------
@@ -101,7 +108,11 @@ module rvfi_wrapper (
     .rvfi_mem_rmask(rvfi_mem_rmask),
     .rvfi_mem_wmask(rvfi_mem_wmask),
     .rvfi_mem_rdata(rvfi_mem_rdata),
-    .rvfi_mem_wdata(rvfi_mem_wdata)
+    .rvfi_mem_wdata(rvfi_mem_wdata),
+    .rvfi_csr_mcycle_rmask (rvfi_csr_mcycle_rmask),
+    .rvfi_csr_mcycle_wmask (rvfi_csr_mcycle_wmask),
+    .rvfi_csr_mcycle_rdata (rvfi_csr_mcycle_rdata),
+    .rvfi_csr_mcycle_wdata (rvfi_csr_mcycle_wdata)
   );
 
 endmodule
