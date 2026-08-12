@@ -3,6 +3,15 @@
 **This directory is for project tooling only** (e.g. `uart_loader.py` and
 similar helper scripts).
 
+## RV32I test-vector encoder — `riscv_enc.py`
+
+`python3 tools/riscv_enc.py` runs a self-check (asserts against encodings
+verified by `dv/p2`). Use the helpers to build instruction words for directed
+tests instead of hand-assembling hex constants — hand-assembled vectors
+produced repeated wrong encodings in M1 P2. See the module docstring for the
+funct3 tables and a usage example. Self-check is part of the M1 lint/test
+habit: `python3 tools/riscv_enc.py && make p2-tests`.
+
 The actual toolchain installs (OSS CAD Suite and the xPack RISC-V toolchain)
 **do NOT live here anymore.** They were relocated to `/home/agent/up5k-tools`:
 

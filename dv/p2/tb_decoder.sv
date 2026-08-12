@@ -216,7 +216,7 @@ module tb_decoder;
 
     // ---- upper immediates --------------------------------------------------------
     // lui x6, 0x12345
-    dec(32'h1234_5037);
+    dec(32'h1234_5337);
     check_enum(alu_a_sel, OPA_X0,  "lui alu_a X0");
     check_enum(alu_b_sel, OPB_UIMM, "lui alu_b UIMM");
     check_enum(alu_op, ALU_ADD, "lui alu_op");

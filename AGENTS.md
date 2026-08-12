@@ -37,6 +37,11 @@ UP5K (target board: UPduino 3.1), built with open-source tools.
   sessions here. Prefer direct implementation or single-module lanes with a
   fixed interface contract over one large delegation for RTL. Fixer is
   reliable for toolchain install, scaffolding, and bounded mechanical edits.
+- Multi-module RTL (core, SoC): stage it into independently-tested leaves —
+  module interface contract → leaf RTL → its own directed test (iverilog) →
+  commit, one leaf at a time — before integration. Whole-core single passes
+  stall (M1 P2 stalled 6× until staged this way; see
+  `.slim/deepwork/m1-core-rvfi.md` for the working stage list).
 
 ## Environment notes
 

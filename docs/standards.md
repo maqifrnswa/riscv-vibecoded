@@ -101,6 +101,32 @@ All tools consume the same SV sources, but with a deliberate split:
 - Handshake semantics documented per module so sby properties can be written
   without guessing (ack latency bounds, valid/ready invariants).
 
+## Directed-test gotchas (iverilog)
+
+Learned in M1 P2 while bringing up `dv/p2/` (each of these cost a
+compile/run cycle before being understood):
+
+- **Enum ternaries need an explicit cast or `if/else`.** `x ? ENUM_A : ENUM_B`
+  fails elaboration with "This assignment requires an explicit cast" — use
+  `if/else` (read_slang and Verilator are fine with the ternary; only iverilog
+  complains).
+- **Packed-struct arrays indexed by a variable crash iverilog** (internal
+  assertion in `elab_expr.cc`). Use parallel unpacked arrays
+  (`logic [31:0] exp_insn [0:18];` per field) for expected-value tables.
+- **Declarations must precede use** at module scope: iverilog binds identifiers
+  textually, so declare signals before instantiations that reference them.
+- **Benign iverilog warnings** (filter with `grep -v sorry` in test runners):
+  "constant selects in always_* processes" (part-selects make the process
+  sensitive to all bits — harmless), "Case unique/unique0 qualities are
+  ignored", and Verilator's `UNUSEDPARAM` on a package compiled standalone
+  (consumers silence it once they import the package).
+- **Hand-assembled instruction encodings in test vectors are error-prone.**
+  Use `tools/riscv_enc.py` (see `tools/README.md`) to generate instruction
+  words; its self-check asserts against encodings verified by `dv/p2`.
+- Directed tests are the fast loop; the riscv-formal `rv32i` prove (P3) is the
+  strong gate that subsumes leaf correctness — keep leaf tests small and
+  focused on one module's contract.
+
 ## Comments
 
 - `//` C++ style preferred; header-style section banners (`////////`) for major

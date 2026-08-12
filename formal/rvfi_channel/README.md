@@ -67,6 +67,22 @@ Mirroring the picorv32 reference binding, validated by `rvfi_insn_addi`:
   does access memory it must drive `mem_addr` + `mem_rmask`/`mem_wmask` and
   the corresponding data per the RVFI spec (see
   `formal/riscv-formal/docs/source/rvfi.rst`).
+
+### Convention gotchas (from M1 P2 test bring-up)
+
+- **`rvfi_rs2_addr` (and `rs1_addr`) is the raw decoded field**, even for
+  instructions whose rs fields overlap the immediate (e.g. `addi`'s rs2 field
+  is `imm[4:0]`, `jal`'s rs1/rs2 fields are part of the J-immediate). The
+  riscv-formal models read the regfile at that address, so the core must
+  report the decoded field and the corresponding pre-state value — never
+  force 0 for "not used".
+- **`rvfi_mem_addr` is word-aligned** (`{addr[31:2], 2'b00}`); byte selection
+  lives in `rvfi_mem_rmask`/`rvfi_mem_wmask`. `rvfi_mem_rdata` is the raw
+  32-bit word read from memory (not the extracted/sign-extended byte), and
+  `rvfi_mem_wdata` is the store data in its byte-lane position.
+- `rvfi_rd_addr` IS forced to 0 for branches/stores (their rd field is part of
+  the immediate and no writeback happens) and `rvfi_rd_wdata` must be 0 when
+  `rd == x0`.
 - **`rvfi_trap`** — 0 here (legal instruction). **`rvfi_halt`** / **`rvfi_intr`**
   — 0 (never halting, not a trap-handler boundary).
 - **`rvfi_mode`** — 0 (U-Mode, per `RISCV_FORMAL_UMODE`). **`rvfi_ixl`** — 1
