@@ -24,6 +24,20 @@ UP5K (target board: UPduino 3.1), built with open-source tools.
 - Language/toolchain facts and target specs live in `docs/design.md` — do not
   re-derive them.
 
+**Delegation notes (learned in M1 — verify before trusting a specialist result):**
+
+- A returned task result that is EMPTY is not a success, even if the session
+  is bookkept as "completed". Before treating any delegated session as done
+  (or resuming/reusing it), verify its expected write-scope artifacts actually
+  exist on disk (`git status`, `ls` the declared output paths).
+- If a session returns empty with no artifacts, do NOT resume it repeatedly.
+  After one empty return, switch strategy: fresh session, smaller bounded
+  lane, or direct implementation.
+- Large multi-module RTL generation has repeatedly returned empty from fixer
+  sessions here. Prefer direct implementation or single-module lanes with a
+  fixed interface contract over one large delegation for RTL. Fixer is
+  reliable for toolchain install, scaffolding, and bounded mechanical edits.
+
 ## Environment notes
 
 - Sandbox network policy controls outbound research (see AGENTS.md above this
