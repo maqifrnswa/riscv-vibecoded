@@ -1,0 +1,32 @@
+RISC-V Specification PDFs — Vendor Notice
+===========================================
+
+This directory vendors two ratified RISC-V specification documents as the
+reference for the formally-verified RV32IMC core in this repository.
+
+Document 1
+----------
+Title:   The RISC-V Instruction Set Manual, Volume I: Unprivileged Architecture
+Version: 20250508 (ratified)
+File:    riscv-unprivileged-20250508.pdf
+Source:  https://github.com/riscv/riscv-isa-manual/releases/download/20250508/riscv-unprivileged-20250508.pdf
+
+Document 2
+----------
+Title:   The RISC-V Instruction Set Manual, Volume II: Privileged Architecture
+Version: 20250508 (ratified)
+File:    riscv-privileged-20250508.pdf
+Source:  https://github.com/riscv/riscv-isa-manual/releases/download/20250508/riscv-privileged-20250508.pdf
+
+Copyright
+---------
+(c) RISC-V International
+
+License
+-------
+These documents are licensed under the Creative Commons Attribution 4.0
+International (CC-BY 4.0) license:
+  https://creativecommons.org/licenses/by/4.0/legalcode
+
+These documents are vendored in this repository as the ratified reference
+for the formally-verified core implemented here.

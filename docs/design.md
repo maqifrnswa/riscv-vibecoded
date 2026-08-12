@@ -54,6 +54,7 @@ first-class for UP5K.
 | D15 | DV: Verilator (2-state) + cocotb; iverilog 4-state smoke for reset/X; spike cross-check of CoreMark binary | 2-state blind spots covered by formal + 4-state smoke |
 | D16 | Coding style: **lowRISC/Ibex** style (see docs/standards.md) | Consistency + reviewability |
 | D17 | Board: **UPduino 3.1**; benchmark: **our core only** (no VexRiscv comparison); deliverable: full SoC demo | Customer decisions |
+| D18 | **ALTOPS M-ops in the core until M3**: the 8 M instructions implement `(rs1±rs2)^mask` combinationally | The rv32imc models assert `rvfi_rd_wdata` byte-exact (ALTOPS is a fake-op contract, not "determinism only"); real MUL/DIV (D6) land in M3 with wrapper-side ALTOPS compensation |
 
 ## 3. Microarchitecture
 
@@ -103,27 +104,85 @@ tuning is deferred to M4 (CPI target there).
 
 ### 3.3 Control flow, CSRs, traps
 
-- Branches/jumps: target computed in EX; buffer flush + 2-cycle refetch on
-  taken. No BTB/BHT in v1 (documented optimization slot).
-- CSRs per D7. `mcycle`/`mcycleh` are the CoreMark clock (`ee_start/ee_stop_time`
-  via `rdcycle`). `wfi` = NOP, `fence.i` = NOP (no I-cache — spec-legal).
-- `ecall`/`ebreak`/illegal/misaligned → trap with correct mcause/mepc/mtval.
-  M-mode only, no delegation.
+**Control flow (M1, unchanged):** branches/jumps resolve in EX; a taken branch
+redirects the fetch unit at the EX→WB edge (≈0 extra cycles with the
+combinational slave, D4). No BTB/BHT in v1.
+
+**M2 cheat-sheet** — ratified unprivileged/privileged specs 20250508 (vendored
+in `docs/specs/`, CC-BY 4.0 NOTICE). The riscv-formal models are the formal
+referee; the spec text is the architectural cross-check.
+
+CSR table (D7; M-mode only, no delegation):
+
+| CSR | Addr | M2 semantics |
+|---|---|---|
+| mstatus | 0x300 | MIE, MPIE, MPP (the bits we implement) |
+| mtvec | 0x305 | direct mode (MODE=0): trap PC = `mtvec & ~3`; reset 0 |
+| mepc | 0x341 | PC of the trapping instruction |
+| mcause | 0x342 | exception code, bit31 (interrupt) = 0 in v1 (D8) |
+| mtval | 0x343 | faulting address (misaligned load/store), else 0 |
+| mcycle | 0xB00 | free-running cycle counter (`rdcycle`; CoreMark clock) |
+| mcycleh | 0xB80 | high 32 bits of mcycle |
+
+mcause codes: 0 instruction-address-misaligned, 2 illegal-instruction,
+3 breakpoint (ebreak), 4 load-address-misaligned, 6 store-address-misaligned,
+11 environment-call-from-M-mode (ecall).
+
+Trap entry (M-mode): `mepc ← PC` of the trapping instruction; `mtval ←` faulting
+address for misaligned load/store, else 0 (ecall/ebreak/illegal → mtval=0);
+`mcause ← code`; `mstatus ← {MPIE=MIE, MIE=0, MPP=11}`; `PC ← mtvec & ~3`.
+Trap exit (`mret`): `mstatus ← {MIE=MPIE, MPIE=1, MPP=00}`; `PC ← mepc`.
+`wfi` = NOP; `fence`/`fence.i` = NOP (spec-legal, no I-cache).
+
+**M2 design decisions (Gate-1 reviewed):**
+
+- **Model-matched trap conditions.** With C enabled (ialign16=1): lh/lhu/sh trap
+  iff effective address bit0; lw/sw trap iff bits[1:0]; lb/lbu/sb never trap
+  (`RISCV_FORMAL_ALIGNED_MEM` semantics); branches and jal trap iff target PC
+  odd; jalr never traps (target bit0 masked); `c.beqz`/`c.bnez` trap iff PC
+  odd; other C instructions fetched at an odd PC execute without trapping;
+  `c.j`/`c.jal` have no target-alignment trap. **32-bit instructions at an odd
+  PC (reachable via `csrrw mepc` + `mret`) also execute without trapping** —
+  there is no blanket odd-PC fetch trap; only c.beqz/c.bnez, branches, and jal
+  trap on odd PC/target. The M1 alignment `[assume]` block in
+  `formal/up5k_rv/checks.cfg` is deleted; the unaligned cases become
+  `spec_trap=1` checks.
+- **ALTOPS M-ops (D18):** the 8 M instructions implement the ALTOPS fake ops
+  `(rs1±rs2)^mask` combinationally — the rv32imc models assert `rvfi_rd_wdata`
+  byte-exact. Masks truncate to `[31:0]` (XLEN=32). Real fixed-latency MUL/DIV
+  (D6) land in M3 with wrapper-side ALTOPS compensation.
+- **c_ebreak (0x9002):** matches **no** insn model — the `c_add` model requires
+  rs2≠0 (`insn_c_add.v:44`; 0x9002 has rs2=00000) and `c_jalr` requires rs1≠0
+  (0x9002 has rs1=00000). The core traps on c.ebreak (mcause=3, spec-compliant)
+  with **no scoping assumption needed** (an early draft of this decision claimed
+  a c_add overlap — incorrect: the encoding fails the model's rs2 guard). The
+  32-bit ecall/ebreak (SYSTEM opcode) also match no insn model and trap freely.
+- **Coverage note:** trap-entry CSR semantics (mepc/mcause/mtval/mstatus
+  values) are NOT pinned by riscv-formal (no ecall/ebreak/mret models) —
+  directed tests carry them. Formal coverage of traps is `spec_trap ==
+  rvfi_trap` + the pc chain.
 
 ### 3.4 RVFI channel (formal contract)
 
 Full RVFI: `order, insn, pc, rs1/rs2/rd (addr+data), mem (addr/rmask/wmask/
 rdata/wdata), csr (addr/wdata/rdata), trap, halt, intr, mode, ixl`.
 
-- **C instructions**: `rvfi_insn` carries the exact 16-bit word in `[15:0]`.
-  Verify the masking convention against the riscv-formal spec during channel
-  bring-up — this is the #1 source of "why does rv32imc prove fail" bugs.
+- **C instructions**: `rvfi_insn` carries the exact 16-bit word in `[15:0]`
+  with `[31:16]` clean zeros; `rvfi_pc_rdata` is the 2-aligned C address and
+  `rvfi_pc_wdata` advances +2 for C, +4 for 32-bit. (Masking plan pinned in
+  M1; implemented in M2.)
 - `rvfi_valid` low during reset and held until first retire; `rvfi_order`
   increments exactly 1 per retire.
 - `rvfi_intr` tied low in v1 (D8); `rvfi_halt` deasserted (ebreak traps and
-  continues).
-- CSR channel reports mstatus/mtvec/mepc/mcause/mtval/mcycle family (match
-  riscv-formal's counter model exactly during integration).
+  continues). `rvfi_mode` = 3 (M-mode) from M2 — the [csrs] checks assert a
+  trap on M-CSR access when mode<3; the M1 `RISCV_FORMAL_UMODE` define is
+  dropped from checks.cfg.
+- CSR channel (M2): `rvfi_csr_<name>_{rmask,wmask,rdata,wdata}` for the D7
+  set — mcycle/mcycleh reported as 64-bit ports (riscv-formal convention);
+  match the counter model exactly during integration (upcnt: strictly
+  increasing, no writes; csrw: full rmask, writes to one half must not alter
+  the other). `rvfi_trap` asserted for the trapping retirement; the trap's
+  redirect (PC → mtvec) chains through pc_wdata/pc_rdata like a branch.
 
 ### 3.5 Resource and timing budget
 
@@ -293,6 +352,16 @@ spike** on the identical binary. (Bonus: RVFI trace diff against spike.)
 
 ## Change log
 
+- 2026-08-12 — M2 P0 (deepwork): spec gate + M2 design. Ratified spec pin
+  updated to **20250508** (unpriv + priv; both re-ratified since the M1 note's
+  20240411/20211203) and vendored to `docs/specs/` with CC-BY 4.0 NOTICE.
+  §3.3 expanded into the M2 cheat-sheet (CSR table D7, mcause codes, trap
+  entry/exit sequence). Design decisions recorded: model-matched trap
+  conditions (M1 alignment assumes deleted; unaligned cases become
+  spec_trap=1 checks), ALTOPS M-ops in core until M3 (D18), c_ebreak/0x9002
+  c_add-model overlap scoped by a documented `[assume]`. Recon finding that
+  corrects the §5.2 framing: ALTOPS asserts `rvfi_rd_wdata` byte-exact (the
+  models implement fake ops the core must reproduce), not merely determinism.
 - 2026-08-12 — M1 P3: **rv32i formal prove green** (deepwork oracle gate:
   APPROVE WITH FIXES). The M1 core is proven against the riscv-formal RV32I
   model suite: 36 instruction checks + pc_fwd by k-induction (smtbmc yices,
