@@ -127,6 +127,38 @@ compile/run cycle before being understood):
   strong gate that subsumes leaf correctness — keep leaf tests small and
   focused on one module's contract.
 
+## Formal tooling gotchas (sby / riscv-formal)
+
+Learned in M1 P3 while bringing up the `rv32i` prove suite (each cost a
+debug cycle or several before being understood):
+
+- **The repo's virtiofs mount breaks sby workdirs.** `rmtree()` of a leftover
+  workdir (a child of the sby cwd) transiently invalidates the process cwd —
+  `os.getcwd()` returns `FileNotFoundError` and sby crashes; parallel
+  `read_slang` on the mount is also flaky ("tree cannot be null"). **Run sby
+  with `-d` on native FS** (e.g. `/tmp/up5k-m1-sby`) — the generated `.sby`
+  files may stay in the repo; `scripts/formal_m1.sh` already does this.
+  The same corruption hits any python that `rmtree`s a repo subdir from a
+  repo-root cwd (genchecks.py) — run such tools from a native cwd.
+- **Judge sby status from the log, never the exit code.** Generated `.sby`
+  files use `expect pass,fail`, so sby returns rc=0 for a real counterexample
+  FAIL too. Grep for `DONE (PASS` in the log.
+- **Invoke riscv-formal `genchecks.py` by absolute path** from the binding
+  dir: the relocated OSS-CAD python breaks on a relative `sys.path[0]`.
+- **Consistency checks are bmc, not prove.** `reg` and `pc_bwd` checkers keep
+  forward-looking state (register shadow / next-retirement look-ahead) that
+  k-induction misfires on — the induction step fires the check on a stale
+  checker pre-state (spurious UNKNOWN) and the `reg` basecase is intractable.
+  `pc_fwd` looks backward and proves fine. See `formal/up5k_rv/checks.cfg`.
+- **`RESET_CYCLES 1 → 8` and the read_slang/read_verilog split must be
+  post-processed** into the generated checks (genchecks hardcodes 1; the
+  harness stays on `read_verilog -sv`). `scripts/formal_m1_gen.py` does both.
+- **riscv-formal models require traps for misaligned accesses and control-flow
+  targets.** A trap-less M1 core must scope the proof via `[assume]` (aligned
+  PCs, load/store addresses, branch/jal/jalr targets); D9 traps land in M2 and
+  the assumptions drop. Counterexample triage: `tools/sby_retire_stream.py`
+  extracts the retire stream from a trace VCD.
+
 ## Comments
 
 - `//` C++ style preferred; header-style section banners (`////////`) for major

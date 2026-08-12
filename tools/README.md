@@ -12,6 +12,19 @@ produced repeated wrong encodings in M1 P2. See the module docstring for the
 funct3 tables and a usage example. Self-check is part of the M1 lint/test
 habit: `python3 tools/riscv_enc.py && make p2-tests`.
 
+## sby counterexample retire-stream extractor — `sby_retire_stream.py`
+
+`python3 tools/sby_retire_stream.py <trace.vcd> [--all-instances] [--detail]`
+
+When a riscv-formal check fails, prints one line per retirement in the sby
+trace VCD (order, pc_rdata/pc_wdata, insn, rs/rd, mem fields, `spec_trap` vs
+`rvfi_trap`, and the `check`-cycle marker) so the disagreement is visible at a
+glance. Handles the flattened-trace pitfalls learned in M1 P3: `anyinit_*`
+wires are init-state drivers (excluded), VCD value blocks lag their `#T` line,
+and duplicated signal instances (`rvfi_trap`, `spec_trap`) resolve to the
+first instance by default (`--all-instances` shows every one). `--detail`
+adds the pipeline state (`phase_q`, `word_pending_q`, fetch state).
+
 The actual toolchain installs (OSS CAD Suite and the xPack RISC-V toolchain)
 **do NOT live here anymore.** They were relocated to `/home/agent/up5k-tools`:
 
