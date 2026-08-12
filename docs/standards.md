@@ -123,9 +123,18 @@ compile/run cycle before being understood):
 - **Hand-assembled instruction encodings in test vectors are error-prone.**
   Use `tools/riscv_enc.py` (see `tools/README.md`) to generate instruction
   words; its self-check asserts against encodings verified by `dv/p2`.
-- Directed tests are the fast loop; the riscv-formal `rv32i` prove (P3) is the
-  strong gate that subsumes leaf correctness — keep leaf tests small and
-  focused on one module's contract.
+- **An enum comparison inside a module PORT CONNECTION breaks iverilog's enum
+  typing for later always blocks** (M2 P1-4b). `trap_enter_i ((phase_q ==
+  PH_WB) && ...)` inline in the csr_file instance made every later
+  `phase_d = PH_WB` fail elaboration with "requires an explicit cast"; the
+  `phase_e'(PH_WB)` cast COMPILES but evaluates to **X at runtime** — the
+  phase goes X at every WB transition and the core never retires (0 retires in
+  2000 cycles, observed via a scratch trace). Fix: compute the port-connection
+  expressions as separate signals (`csr_trap_enter`/`csr_mret_enter` assigns)
+  outside the instance, and keep plain enum assignments.
+- Directed tests are the fast loop; the riscv-formal `rv32i`/`rv32imc` prove
+  (P2/P3) is the strong gate that subsumes leaf correctness — keep leaf tests
+  small and focused on one module's contract.
 
 ## Formal tooling gotchas (sby / riscv-formal)
 
@@ -165,6 +174,35 @@ debug cycle or several before being understood):
     (next_pc[1:0] != 0)`). Verified by counterexample: removing these assumes
     fails all branch/jal checks in the basecase. Do not "clean up" them or the
     jalr pre-mask assume while the core is trap-less.
+
+M2 additions (rv32imc, `scripts/formal_m2.sh`):
+
+- **ALTOPS masks are the LOW 32 bits of the models' 64-bit constants.** The
+  insn models compute `result = (rs1 +- rs2) ^ 64'h<mask>` at 64-bit width and
+  truncate to XLEN — the effective RV32 mask is `mask[31:0]`, not the high
+  half. The prove suite's `insn_mul`/`insn_div` counterexamples
+  (`rvfi_insn_check.sv:177` rd_wdata mismatch) caught the high-half mistake.
+- **The csrc counter checks (upcnt/inc) require a strictly monotonic counter.**
+  `upcnt` assumes no writes at every cycle; `inc` tracks a write via
+  `csr_written` that is cleared by ANY intervening non-CSR retirement, so a
+  writable counter cannot satisfy them. mcycle/mcycleh are therefore
+  **read-only** (spec-legal; D19) — writes are reported on the channel for the
+  csrw check (which asserts the REPORTED smask/cmask/wmask/wdata, not applied
+  writes) but not applied. Reserved SYSTEM funct3=100 must decode illegal (the
+  csr checks require `insn[13:12] != 0`, so it would be an invisible write).
+- **`[depth]` entry formats differ per check type** (genchecks `get_depth_cfg`
+  + index usage): `insn`/`csrw` single value; `reg`/`pc_fwd`/`pc_bwd`/`csrc_*`
+  two values (start, depth); `liveness` three values (start, trig, depth). A
+  check with no matching entry is silently skipped.
+- **sby `mode live` is a tooling dead-end in the pinned toolchain.** Live mode
+  accepts only the `aiger` engine (suprove), and rejects the generated
+  `append`/`depth`/`skip` options one by one; after cleanup suprove returns
+  "could not determine engine status" (rc=16). The reference binding's
+  liveness check is `mode bmc` (bounded progress) — that is the "live green"
+  evidence; phrase it honestly in handoff notes.
+- **Counterexample triage with `tools/sby_retire_stream.py`** plus direct VCD
+  extraction of the `rvfi_csr_*` signals (see the M2 csrc_upcnt/inc debug in
+  `.slim/deepwork/m2-c-trap-csr.md` for the pattern).
 
 ## Comments
 

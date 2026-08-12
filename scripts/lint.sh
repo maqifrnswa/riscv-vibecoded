@@ -28,7 +28,8 @@ cd "${REPO_ROOT}"
 # Modules to lint (sources, no testbenches).
 HELLO_SRC="rtl/hello/hello.sv"
 CORE_SRC="rtl/core/up5k_rv_pkg.sv rtl/core/decoder.sv rtl/core/regfile.sv \
-rtl/core/alu.sv rtl/core/lsu.sv rtl/core/fetch_unit.sv rtl/core/rv32i_core.sv"
+rtl/core/alu.sv rtl/core/lsu.sv rtl/core/fetch_unit.sv rtl/core/csr_file.sv \
+rtl/core/rv32i_core.sv"
 
 FAILED=0
 

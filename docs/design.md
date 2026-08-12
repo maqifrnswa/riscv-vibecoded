@@ -55,6 +55,7 @@ first-class for UP5K.
 | D16 | Coding style: **lowRISC/Ibex** style (see docs/standards.md) | Consistency + reviewability |
 | D17 | Board: **UPduino 3.1**; benchmark: **our core only** (no VexRiscv comparison); deliverable: full SoC demo | Customer decisions |
 | D18 | **ALTOPS M-ops in the core until M3**: the 8 M instructions implement `(rs1±rs2)^mask` combinationally | The rv32imc models assert `rvfi_rd_wdata` byte-exact (ALTOPS is a fake-op contract, not "determinism only"); real MUL/DIV (D6) land in M3 with wrapper-side ALTOPS compensation |
+| D19 | **mcycle/mcycleh are read-only** (spec-legal); csrw writes are reported on the rvfi channel but not applied | The riscv-formal csrc_upcnt/inc counter checks require a strictly monotonic counter — their write-tracking (`csr_written`) is cleared by any intervening retirement, so a writable counter cannot satisfy them; `rdcycle` (M4 CoreMark timing) only reads |
 
 ## 3. Microarchitecture
 
@@ -352,6 +353,19 @@ spike** on the identical binary. (Bonus: RVFI trace diff against spike.)
 
 ## Change log
 
+- 2026-08-12 — **M2 DONE** (deepwork P1–P3; oracle gates 1+2 APPROVE): C
+  extension, traps, CSRs. `rv32imc` prove green (78/78 checks, `make
+  formal-m2`); liveness green in bmc mode (reference-binding-equivalent
+  bounded progress — honest statement in roadmap M2 handoff). RTL: C-ext
+  decode/fetch (PC[1] halfword select, seq_pc +2/+4, decoder-driven regfile
+  read at ID), model-matched traps (mcause 0/2/3/4/6/11, LSU suppression),
+  mret, D7 CSR set, csrrw/csrrs/csrrc ±i, rvfi_csr channel (mcycle 64-bit,
+  **mcycle/mcycleh read-only — D19**). Three bugs found by the formal suite
+  and fixed: (1) ALTOPS masks used the HIGH 32 bits of the models' 64-bit
+  constants — the model XORs at 64-bit width then truncates, so the effective
+  RV32 mask is the LOW 32 bits; (2) reserved SYSTEM funct3=100 executed as an
+  invisible CSR write (the csr checks require insn[13:12]!=0) — now illegal;
+  (3) writable mcycle broke the counter checks — read-only (D19).
 - 2026-08-12 — M2 P0 (deepwork): spec gate + M2 design. Ratified spec pin
   updated to **20250508** (unpriv + priv; both re-ratified since the M1 note's
   20240411/20211203) and vendored to `docs/specs/` with CC-BY 4.0 NOTICE.

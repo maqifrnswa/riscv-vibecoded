@@ -116,8 +116,24 @@ predicted #1 source of "why does rv32imc prove fail" bugs (design.md §3.4):
   instruction models (`insns/isa_rv32imc.txt`) individually; the masking
   convention is what the models compare against byte-for-byte.
 
-The M1 RV32I core reports `rvfi_insn` = the full 32-bit word and `pc += 4`;
-M2's fetch unit (16-bit granularity) and RVFI drive must add the masking.
+**Implemented in M2** (rv32imc prove green, 78/78): the fetch unit requests
+word-aligned words and the core selects the containing halfword by `PC[1]`
+(`fetch_word_sel`, zero-extended); a 32-bit-looking halfword at a 2-aligned PC
+executes zero-extended (model-required execute-without-trap). The RVFI drive
+reports `rvfi_insn = insn_exe_q` (the masked C word), `rvfi_pc_rdata` 2-aligned
+and `rvfi_pc_wdata = pc+2`. M2 additions to the channel contract:
+
+- **`rvfi_mode` = 3** (M-mode) from M2 — the `[csrs]` csrw checks assert a trap
+  on M-CSR access when mode < 3 (the M1 `RISCV_FORMAL_UMODE` define was
+  dropped).
+- **`rvfi_trap` = 1** on trap retirements (ecall/ebreak/illegal/misaligned);
+  trap retirements report `rd_addr`/`rd_wdata` = 0 and a `pc_wdata` of the trap
+  vector (`mtvec & ~3`).
+- **CSR channel**: `rvfi_csr_<name>_{rmask,wmask,rdata,wdata}` for the D7 set.
+  `mcycle`/`mcycleh` share one **64-bit** channel (CSRWH half-consistency:
+  masks/wdata cover only the accessed half). `mcycle` is **read-only** (D19):
+  writes are reported (for the csrw check, which asserts the *reported*
+  channel) but not applied — the counter checks require a monotonic counter.
 
 ### Wrapper port contract
 

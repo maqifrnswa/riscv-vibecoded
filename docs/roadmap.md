@@ -8,8 +8,8 @@ See [handoff.md](handoff.md) for the session protocol.
 
 - Design **LOCKED** (docs/design.md, 2026-08-11).
 - Docs/backbone committed to git.
-- **Next action: M2** (C extension + traps + CSRs — `rv32imc` prove + live).
-- Active milestone: **M1 done** (2026-08-12; see M1 section).
+- **Next action: M3** (MUL/DIV units — M-arithmetic closure).
+- Active milestone: **M2 done** (2026-08-12; see M2 section).
 
 ## Milestone tracking
 
@@ -17,7 +17,7 @@ See [handoff.md](handoff.md) for the session protocol.
 |---|---|---|---|
 | M0 | Scaffold + toolchain smoke | **DONE** (2026-08-11, deepwork) | Repo layout, toolchain pinned, lint gate green, riscv-formal submodule, **stock picorv32 binding green through sby in CI** |
 | M1 | RV32I core + RVFI | **DONE** (2026-08-12, deepwork) | RV32I multi-cycle core; riscv-formal `rv32i` prove passing in CI |
-| M2 | C ext + traps + CSRs | TODO | `rv32imc` prove **and** live green (ALTOPS) |
+| M2 | C ext + traps + CSRs | **DONE** (2026-08-12) | `rv32imc` prove **and** live green (ALTOPS) |
 | M3 | MUL/DIV units | TODO | Bounded-width formal + golden DV + determinism property green; full rv32imc suite green |
 | M4 | CoreMark port + perf | TODO | CoreMark score in Verilator sim; spike cross-check; CPI target met |
 | M5 | SoC v1 + bootloader | TODO | SBus + decoder + ROM + SPRAM + fake-UART + timer + GPIO; uart_loader.py; demos |
@@ -103,12 +103,43 @@ Status legend: `TODO` / `IN PROGRESS` / `BLOCKED` / `DONE`.
 
 ## M2 — C extension + traps + CSRs
 
+- **Status: DONE** (2026-08-12, deepwork). Oracle gates 1 + 2: APPROVE.
 - **Objective:** rv32imc prove + live green.
 - **Tasks:** C decoder; ecall/ebreak/illegal/misaligned traps; CSR set (D7);
   mcycle/mcycleh; liveness fairness constraints; `cover` depth calibration.
 - **Exit criteria:** `rv32imc` prove **and** live green (ALTOPS); RVFI harness
   in SV via read_slang.
-- **Handoff notes:** *(empty)*
+- **Result / evidence:**
+  - `make formal-m2` = **78/78 rv32imc checks green** (70 insn checks: 37 I +
+    25 C + 8 M ALTOPS; reg/pc_fwd/pc_bwd consistency; csrw/csrc mcycle counter;
+    liveness; cover). Runner: `scripts/formal_m2.sh` + `formal_m2_gen.py`,
+    checks.cfg `isa rv32imc` + `[csrs] mcycle inc upcnt` (M1 alignment
+    `[assume]`s deleted — the M2 core traps on the model-pinned unaligned
+    cases).
+  - `make p2-tests` = 10 directed tests green (incl. tb_trap, tb_csr_pipe,
+    tb_m, tb_core 48-retire program).
+  - **Honest "live green" statement:** liveness is proven as **bmc-mode
+    bounded progress** — every retirement is followed by the next within the
+    20-cycle window, with `RISCV_FORMAL_FAIRNESS` — byte-for-byte the
+    picorv32 reference binding's liveness configuration. Unbounded liveness
+    (sby `mode live` / aiger suprove) is NOT proven: suprove in the pinned
+    toolchain returns "could not determine engine status" (rc=16); revisit at
+    M7 when the toolchain updates.
+- **Handoff notes:**
+  - RTL: C-ext decode + fetch granularity (PC[1] halfword, seq_pc +2/+4,
+    decoder-driven regfile read at ID), model-matched traps (mcause 0/2/3/4/
+    6/11, LSU suppression), mret, D7 CSR set, csrrw/csrrs/csrrc ±i, rvfi_csr
+    channel (mcycle 64-bit). **mcycle/mcycleh are read-only (D19)** — csrw
+    writes are reported on the channel but not applied; CoreMark (M4) uses
+    rdcycle reads only, so no BSP conflict.
+  - Three bugs the formal suite found and fixed (recorded in design.md change
+    log): ALTOPS masks use the LOW 32 bits of the models' 64-bit constants;
+    reserved SYSTEM funct3=100 → illegal (was an invisible CSR write); writable
+    mcycle → read-only.
+  - Known formal gap (design.md §5.1): load *data* path not pinned by the insn
+    checks (DV covers; shared-RAM wrapper/dmem checks at M2/M5).
+  - Next action: M3 (MUL/DIV units + M-arithmetic closure: golden DV + bounded
+    proofs + determinism; wrapper-side ALTOPS compensation once real units land).
 
 ## M3 — MUL/DIV units
 
