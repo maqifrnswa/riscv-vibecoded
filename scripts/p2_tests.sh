@@ -53,6 +53,9 @@ run_test decoder     ${CORE_SRC} dv/p2/tb_decoder.sv
 run_test lsu         ${CORE_SRC} dv/p2/tb_lsu.sv
 run_test fetch_unit  ${CORE_SRC} dv/p2/tb_fetch_unit.sv
 run_test csr         ${CORE_SRC} dv/p2/tb_csr.sv
+run_test csr_pipe    ${CORE_SRC} dv/p2/tb_csr_pipe.sv
+run_test trap        ${CORE_SRC} dv/p2/tb_trap.sv
+run_test m           ${CORE_SRC} dv/p2/tb_m.sv
 run_test core        ${CORE_SRC} dv/p2/tb_core.sv
 
 if [ "${FAILED}" -eq 0 ]; then

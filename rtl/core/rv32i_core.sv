@@ -66,7 +66,33 @@ module rv32i_core (
   output logic [ 3:0] rvfi_mem_rmask,
   output logic [ 3:0] rvfi_mem_wmask,
   output logic [31:0] rvfi_mem_rdata,
-  output logic [31:0] rvfi_mem_wdata
+  output logic [31:0] rvfi_mem_wdata,
+
+  // ---- RVFI CSR channel (M2 P1-4c, D7 set; mcycle is 64-bit) ----------------
+  output logic [31:0] rvfi_csr_mstatus_rmask,
+  output logic [31:0] rvfi_csr_mstatus_wmask,
+  output logic [31:0] rvfi_csr_mstatus_rdata,
+  output logic [31:0] rvfi_csr_mstatus_wdata,
+  output logic [31:0] rvfi_csr_mtvec_rmask,
+  output logic [31:0] rvfi_csr_mtvec_wmask,
+  output logic [31:0] rvfi_csr_mtvec_rdata,
+  output logic [31:0] rvfi_csr_mtvec_wdata,
+  output logic [31:0] rvfi_csr_mepc_rmask,
+  output logic [31:0] rvfi_csr_mepc_wmask,
+  output logic [31:0] rvfi_csr_mepc_rdata,
+  output logic [31:0] rvfi_csr_mepc_wdata,
+  output logic [31:0] rvfi_csr_mcause_rmask,
+  output logic [31:0] rvfi_csr_mcause_wmask,
+  output logic [31:0] rvfi_csr_mcause_rdata,
+  output logic [31:0] rvfi_csr_mcause_wdata,
+  output logic [31:0] rvfi_csr_mtval_rmask,
+  output logic [31:0] rvfi_csr_mtval_wmask,
+  output logic [31:0] rvfi_csr_mtval_rdata,
+  output logic [31:0] rvfi_csr_mtval_wdata,
+  output logic [63:0] rvfi_csr_mcycle_rmask,
+  output logic [63:0] rvfi_csr_mcycle_wmask,
+  output logic [63:0] rvfi_csr_mcycle_rdata,
+  output logic [63:0] rvfi_csr_mcycle_wdata
 );
 
   // ---- pipeline state --------------------------------------------------------
@@ -251,6 +277,7 @@ module rv32i_core (
   logic        trap_ebreak;
   logic        trap_mem_mis;
   logic        trap_ecall;
+  logic        trap_illegal_csr;
   logic        trap_pending;
   logic        mret_pending;
   logic [31:0] trap_mcause;
@@ -300,12 +327,20 @@ module rv32i_core (
   end
 
   assign trap_pending = trap_inst_misalign || trap_illegal || trap_ebreak ||
-                        trap_mem_mis || trap_ecall;
+                        trap_mem_mis || trap_ecall || trap_illegal_csr;
+
+  // Illegal CSR address: the D7 set only. Any other CSR instruction traps as
+  // an illegal instruction (mcause=2).
+  assign trap_illegal_csr = dec_is_csr &&
+    (dec_csr_addr != 12'h300) && (dec_csr_addr != 12'h305) &&
+    (dec_csr_addr != 12'h341) && (dec_csr_addr != 12'h342) &&
+    (dec_csr_addr != 12'h343) && (dec_csr_addr != 12'hB00) &&
+    (dec_csr_addr != 12'hB80);
 
   always_comb begin
     trap_mcause = 32'd0;
     trap_mtval  = 32'd0;
-    if (trap_illegal) trap_mcause = 32'd2;
+    if (trap_illegal || trap_illegal_csr) trap_mcause = 32'd2;
     if (trap_ebreak)  trap_mcause = 32'd3;
     if (trap_mem_mis) begin
       trap_mcause = dec_is_load ? 32'd4 : 32'd6;
@@ -314,21 +349,45 @@ module rv32i_core (
     if (trap_ecall) trap_mcause = 32'd11;
   end
 
-  // CSR file (D7): trap entry/exit updates; mtvec/mepc feed the redirects.
-  // The CSR-instruction read/write path and rvfi_csr channel wire up in P1-4c.
+  // ---- CSR instruction pipeline (M2 P1-4c) ------------------------------------
+  // The csr_file read port is driven with the decoded CSR address; the read
+  // value (pre-write) feeds rd_wdata at WB, and the write value commits at the
+  // WB edge. CSR read-modify-write per the riscv-formal csrw model:
+  //   rw: write operand always; rs/rc: write iff operand != 0.
+  logic [31:0] csr_operand;   // rs1 (register form) or zimm (immediate form)
+  logic [31:0] csr_new_val;
+  logic        csr_write_en;
+  logic [31:0] csr_rdata;
+  logic [11:0] csr_addr;
+  logic        csr_we;
+  logic [31:0] csr_wdata;
+  logic [63:0] mcycle_val;
+
+  assign csr_addr     = dec_csr_addr;
+  assign csr_operand  = dec_csr_imm ? {27'b0, insn_exe_q[19:15]} : rs1_q;
+  assign csr_write_en = dec_is_csr && ((dec_csr_op == CSR_RW) ||
+                                       (csr_operand != 32'd0));
+  assign csr_new_val  = (dec_csr_op == CSR_RW) ? csr_operand :
+                        (dec_csr_op == CSR_RS) ? (csr_rdata | csr_operand) :
+                                                 (csr_rdata & ~csr_operand);
+  assign csr_we       = (phase_q == PH_WB) && csr_write_en && !trap_exe_q;
+  assign csr_wdata    = csr_new_val;
+
+  // CSR file (D7): CSR-instruction access + trap entry/exit updates;
+  // mtvec/mepc feed the redirects.
   csr_file u_csr (
     .clk_i         (clk_i),
     .rst_ni        (rst_ni),
-    .csr_addr_i    (12'd0),
-    .csr_rdata_o   (),
-    .csr_we_i      (1'b0),
-    .csr_wdata_i   (32'd0),
+    .csr_addr_i    (csr_addr),
+    .csr_rdata_o   (csr_rdata),
+    .csr_we_i      (csr_we),
+    .csr_wdata_i   (csr_wdata),
     .trap_enter_i  (csr_trap_enter),
     .trap_mepc_i   (pc_exe_q),
     .trap_mcause_i (trap_mcause_q),
     .trap_mtval_i  (trap_mtval_q),
     .mret_i        (csr_mret_enter),
-    .mcycle_o      (),
+    .mcycle_o      (mcycle_val),
     .mtvec_o       (mtvec_val),
     .mepc_o        (mepc_val)
   );
@@ -395,9 +454,12 @@ module rv32i_core (
     endcase
   end
 
-  // Writeback data (WB phase).
+  // Writeback data (WB phase). CSR instructions write the pre-write CSR value
+  // (read combinationally from the csr_file during WB).
   always_comb begin
-    if (dec_is_load) begin
+    if (dec_is_csr) begin
+      rd_wdata_comb = csr_rdata;
+    end else if (dec_is_load) begin
       rd_wdata_comb = lsu_rd_data;
     end else if (dec_is_jal || dec_is_jalr) begin
       rd_wdata_comb = seq_pc;
@@ -536,5 +598,76 @@ module rv32i_core (
                           ? mem_rdata_q : 32'd0;
   assign rvfi_mem_wdata = ((phase_q == PH_WB) && dec_is_store && !trap_exe_q)
                           ? lsu_wdata : 32'd0;
+
+  // ---- RVFI CSR channel drives (M2 P1-4c) ----------------------------------------
+  // Per riscv-formal convention: rmask full on read (rd != 0), wmask = the
+  // written bits (all-ones for csrrw, the operand for csrrs/csrrc), rdata =
+  // the pre-write value, wdata = the value written. mcycle is 64-bit with the
+  // accessed half in the mask/data (CSRWH half-consistency rule).
+  logic csr_acc_mstatus, csr_acc_mtvec, csr_acc_mepc;
+  logic csr_acc_mcause, csr_acc_mtval, csr_acc_mcycle;
+  assign csr_acc_mstatus = (phase_q == PH_WB) && dec_is_csr && (dec_csr_addr == 12'h300);
+  assign csr_acc_mtvec   = (phase_q == PH_WB) && dec_is_csr && (dec_csr_addr == 12'h305);
+  assign csr_acc_mepc    = (phase_q == PH_WB) && dec_is_csr && (dec_csr_addr == 12'h341);
+  assign csr_acc_mcause  = (phase_q == PH_WB) && dec_is_csr && (dec_csr_addr == 12'h342);
+  assign csr_acc_mtval   = (phase_q == PH_WB) && dec_is_csr && (dec_csr_addr == 12'h343);
+  assign csr_acc_mcycle  = (phase_q == PH_WB) && dec_is_csr &&
+                           ((dec_csr_addr == 12'hB00) || (dec_csr_addr == 12'hB80));
+
+  // 32-bit CSR channels.
+  assign rvfi_csr_mstatus_rmask = csr_acc_mstatus && (dec_rd_addr != 5'd0)
+                                  ? 32'hffff_ffff : 32'd0;
+  assign rvfi_csr_mstatus_wmask = csr_acc_mstatus && csr_we
+                                  ? ((dec_csr_op == CSR_RW) ? 32'hffff_ffff : csr_operand)
+                                  : 32'd0;
+  assign rvfi_csr_mstatus_rdata = csr_acc_mstatus ? csr_rdata : 32'd0;
+  assign rvfi_csr_mstatus_wdata = csr_acc_mstatus && csr_we ? csr_wdata : 32'd0;
+
+  assign rvfi_csr_mtvec_rmask = csr_acc_mtvec && (dec_rd_addr != 5'd0)
+                                ? 32'hffff_ffff : 32'd0;
+  assign rvfi_csr_mtvec_wmask = csr_acc_mtvec && csr_we
+                                ? ((dec_csr_op == CSR_RW) ? 32'hffff_ffff : csr_operand)
+                                : 32'd0;
+  assign rvfi_csr_mtvec_rdata = csr_acc_mtvec ? csr_rdata : 32'd0;
+  assign rvfi_csr_mtvec_wdata = csr_acc_mtvec && csr_we ? csr_wdata : 32'd0;
+
+  assign rvfi_csr_mepc_rmask = csr_acc_mepc && (dec_rd_addr != 5'd0)
+                               ? 32'hffff_ffff : 32'd0;
+  assign rvfi_csr_mepc_wmask = csr_acc_mepc && csr_we
+                               ? ((dec_csr_op == CSR_RW) ? 32'hffff_ffff : csr_operand)
+                               : 32'd0;
+  assign rvfi_csr_mepc_rdata = csr_acc_mepc ? csr_rdata : 32'd0;
+  assign rvfi_csr_mepc_wdata = csr_acc_mepc && csr_we ? csr_wdata : 32'd0;
+
+  assign rvfi_csr_mcause_rmask = csr_acc_mcause && (dec_rd_addr != 5'd0)
+                                 ? 32'hffff_ffff : 32'd0;
+  assign rvfi_csr_mcause_wmask = csr_acc_mcause && csr_we
+                                 ? ((dec_csr_op == CSR_RW) ? 32'hffff_ffff : csr_operand)
+                                 : 32'd0;
+  assign rvfi_csr_mcause_rdata = csr_acc_mcause ? csr_rdata : 32'd0;
+  assign rvfi_csr_mcause_wdata = csr_acc_mcause && csr_we ? csr_wdata : 32'd0;
+
+  assign rvfi_csr_mtval_rmask = csr_acc_mtval && (dec_rd_addr != 5'd0)
+                                ? 32'hffff_ffff : 32'd0;
+  assign rvfi_csr_mtval_wmask = csr_acc_mtval && csr_we
+                                ? ((dec_csr_op == CSR_RW) ? 32'hffff_ffff : csr_operand)
+                                : 32'd0;
+  assign rvfi_csr_mtval_rdata = csr_acc_mtval ? csr_rdata : 32'd0;
+  assign rvfi_csr_mtval_wdata = csr_acc_mtval && csr_we ? csr_wdata : 32'd0;
+
+  // 64-bit mcycle channel (mcycleh access selects the high half).
+  assign rvfi_csr_mcycle_rmask = csr_acc_mcycle && (dec_rd_addr != 5'd0)
+    ? ((dec_csr_addr == 12'hB80) ? 64'hffff_ffff_0000_0000 : 64'h0000_0000_ffff_ffff)
+    : 64'd0;
+  assign rvfi_csr_mcycle_wmask = csr_acc_mcycle && csr_we
+    ? ((dec_csr_addr == 12'hB80)
+       ? {((dec_csr_op == CSR_RW) ? 32'hffff_ffff : csr_operand), 32'd0}
+       : {32'd0, ((dec_csr_op == CSR_RW) ? 32'hffff_ffff : csr_operand)})
+    : 64'd0;
+  assign rvfi_csr_mcycle_rdata = csr_acc_mcycle ? mcycle_val : 64'd0;
+  assign rvfi_csr_mcycle_wdata = csr_acc_mcycle && csr_we
+    ? ((dec_csr_addr == 12'hB80) ? {csr_wdata, mcycle_val[31:0]}
+                                 : {mcycle_val[63:32], csr_wdata})
+    : 64'd0;
 
 endmodule
