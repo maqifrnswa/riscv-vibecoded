@@ -64,9 +64,12 @@ Fmax × CoreMark/MHz (Y). The frontier is a **two-step curve**:
   CM/MHz. (The figure's "discrete feature boundary" was exactly this.) The
   sibling's Fmax is 16.5–23.3 MHz — its own clock target, not ours — so
   **CM/MHz vs LUTs is the portable comparison**; Y is the figure's axis only.
-- No frontier config uses USE_BRANCH_PREDICTOR (prediction never won in this
-  sweep) — supporting D4. Within a tier, REG_MISPREDICT_TOTAL=1 trades
-  CM/MHz for Fmax (Tier 2: 1.82 → 1.61 CM/MHz, 17.3 → 23.3 MHz).
+- No frontier config uses USE_BRANCH_PREDICTOR — it is a **static**
+  predictor that adds LUTs and lengthens the critical path, so it never won
+  in this sweep. Consistent with D4 (no prediction in v1; a dynamic
+  predictor would cost far more area). Within a tier,
+  REG_MISPREDICT_TOTAL=1 trades CM/MHz for Fmax (Tier 2: 1.82 → 1.61 CM/MHz,
+  17.3 → 23.3 MHz).
 - Frontier endpoints: min area 1632 LUTs (0.78 CM/MHz, Y 12.9); max CM/MHz
   1.82 at 1843 LUTs (Y 29.0); max Y 37.5 at 1931 LUTs (1.61 CM/MHz, config
   1,1,1,0,0,1).
