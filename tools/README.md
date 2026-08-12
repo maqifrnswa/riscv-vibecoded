@@ -25,6 +25,23 @@ and duplicated signal instances (`rvfi_trap`, `spec_trap`) resolve to the
 first instance by default (`--all-instances` shows every one). `--detail`
 adds the pipeline state (`phase_q`, `word_pending_q`, fetch state).
 
+The retire line also includes the `rvfi_csr_mcycle_*` signals when present in
+the trace (added in M2 for the csrc_upcnt/inc counter-model counterexample
+triage).
+
+## expected-RVFI-table generator — `gen_expected.py`
+
+`python3 tools/gen_expected.py`
+
+Builds a directed-test program from the `riscv_enc.py` encoders, emulates the
+core's registers/memory, and prints the SV `set_exp(...)` expected-retire
+table + memory preload lines in the shape `dv/p2/tb_core.sv` uses. Hand-
+computing those tables repeatedly produced wrong encodings and values (M1 P2,
+M2 P1-4a); the emulator's output is diffed against the committed tb_core
+C-section entries (orders 19–47) to pin it. Edit `build_program()` for a new
+test. This covers iverilog directed tests; the M3 golden-DV goes the
+cocotb/Verilator route (design D15).
+
 The actual toolchain installs (OSS CAD Suite and the xPack RISC-V toolchain)
 **do NOT live here anymore.** They were relocated to `/home/agent/up5k-tools`:
 

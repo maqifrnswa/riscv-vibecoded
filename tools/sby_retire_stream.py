@@ -39,6 +39,10 @@ RETIRE_SIGNALS = [
     "rvfi_mem_addr", "rvfi_mem_rmask", "rvfi_mem_wmask",
     "rvfi_mem_rdata", "rvfi_mem_wdata",
     "rvfi_trap", "spec_trap", "check",
+    # M2: CSR counter channel (printed only when present in the trace -- the
+    # csrc_upcnt/inc counterexample triage in M2 P2 needed these).
+    "rvfi_csr_mcycle_rmask", "rvfi_csr_mcycle_wmask",
+    "rvfi_csr_mcycle_rdata", "rvfi_csr_mcycle_wdata",
 ]
 # Extra pipeline state for --detail.
 DETAIL_SIGNALS = [

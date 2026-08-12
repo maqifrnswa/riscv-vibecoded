@@ -132,6 +132,16 @@ compile/run cycle before being understood):
   2000 cycles, observed via a scratch trace). Fix: compute the port-connection
   expressions as separate signals (`csr_trap_enter`/`csr_mret_enter` assigns)
   outside the instance, and keep plain enum assignments.
+- **Testbench edge-sensitive task helpers are phase-fragile** (M2 P1-3 tb_csr).
+  `@(negedge clk)` returns immediately if the testbench is already in the low
+  phase, so operation sequences cross a variable number of posedges; a `#1`
+  inside a read task drifts the sampling phase. The robust pattern: DRIVE in
+  the low phase (`@(negedge clk)`), CAPTURE at the next posedge, DEASSERT at
+  the following negedge (never in the same delta as the capture posedge — that
+  races the DUT's input sampling); make reads PURE combinational samples
+  (`csr_addr = ...; #1; val = rdata`) and guarantee the caller is in a stable
+  phase. When exact cycle counts are unverifiable this way, assert ranges
+  (`check_range`) over the essential property instead of exact values.
 - Directed tests are the fast loop; the riscv-formal `rv32i`/`rv32imc` prove
   (P2/P3) is the strong gate that subsumes leaf correctness — keep leaf tests
   small and focused on one module's contract.
@@ -149,6 +159,10 @@ debug cycle or several before being understood):
   files may stay in the repo; `scripts/formal_m1.sh` already does this.
   The same corruption hits any python that `rmtree`s a repo subdir from a
   repo-root cwd (genchecks.py) — run such tools from a native cwd.
+  **Git manifests it too:** `git commit` intermittently prints `error:
+  invalid object 040000 … for 'rtl/core'` yet commits fine (a transient tree
+  read failure on the mount). Verify with `git show --stat HEAD` and
+  `git fsck` when it appears; do not retry/rebase on the error alone.
 - **Judge sby status from the log, never the exit code.** Generated `.sby`
   files use `expect pass,fail`, so sby returns rc=0 for a real counterexample
   FAIL too. Grep for `DONE (PASS` in the log.
