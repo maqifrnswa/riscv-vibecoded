@@ -158,6 +158,13 @@ debug cycle or several before being understood):
   PCs, load/store addresses, branch/jal/jalr targets); D9 traps land in M2 and
   the assumptions drop. Counterexample triage: `tools/sby_retire_stream.py`
   extracts the retire stream from a trace VCD.
+  - **The branch/jal target assumes are load-bearing, NOT tautologies.** A
+    branch or jal immediate has bit0 = 0, so target = pc + 2k is only
+    2-aligned for odd k — e.g. `beq` with imm = 2 at pc 0x...28 targets
+    0x...2a, which RV32I (`ialign16 = 0`) requires a trap for (`spec_trap =
+    (next_pc[1:0] != 0)`). Verified by counterexample: removing these assumes
+    fails all branch/jal checks in the basecase. Do not "clean up" them or the
+    jalr pre-mask assume while the core is trap-less.
 
 ## Comments
 

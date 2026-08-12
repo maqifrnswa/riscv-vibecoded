@@ -23,6 +23,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 # Core SV file order: package first (slang resolves imports per-file), then the
 # leaf modules, then the top, then the formal wrapper.
@@ -41,32 +42,42 @@ CORE_SV = [
 def main() -> None:
     repo = os.path.abspath(sys.argv[1])
     # The repo lives on a virtiofs mount whose dentry cache is invalidated by
-    # rmtree() of a subdirectory: the process cwd (and any child's inherited
-    # cwd) then fails os.getcwd() transiently. All our operations use absolute
-    # paths, so run from a native-FS cwd to keep getcwd() reliable.
-    os.chdir(os.path.dirname(repo))
+    # rmtree() of a subdirectory: a cwd anywhere on the mount then fails
+    # os.getcwd() transiently (the sby workdir crashes had the same root
+    # cause). All our operations use absolute paths, so run from a NATIVE-FS
+    # cwd to keep getcwd() reliable.
+    os.chdir(tempfile.gettempdir())
     rf_dir = os.path.join(repo, "formal", "riscv-formal")
-    bind_dir = os.path.join(rf_dir, "cores", "up5k_rv")
     src_dir = os.path.join(repo, "formal", "up5k_rv")
+
+    # Stage the whole generation on NATIVE FS: the virtiofs mount corrupts
+    # getcwd() for a window after ANY rmtree()/write anywhere on the mount, and
+    # genchecks.py both removes and rewrites its output dir from its own cwd.
+    # Everything below runs in $TMPDIR; the submodule is only read (through
+    # symlinks), never written, so its git status stays clean and the proof
+    # runs are stable.
+    native_root = os.path.join(tempfile.gettempdir(), "up5k-rv-formal")
+    bind_dir = os.path.join(native_root, "cores", "up5k_rv")
     checks_dir = os.path.join(bind_dir, "checks")
 
-    # 1. (Re)create the build-time binding dir and copy the committed sources.
+    # 1. (Re)create the native binding dir and mirror the riscv-formal layout
+    #    genchecks expects (basedir = cwd/../..; the generated [files] paths
+    #    resolve through the symlinks at sby runtime).
     shutil.rmtree(bind_dir, ignore_errors=True)
     os.makedirs(bind_dir)
-    # Keep the riscv-formal submodule's git status clean: this dir is ephemeral
-    # build state, regenerated on every run.
-    with open(os.path.join(bind_dir, ".gitignore"), "w", encoding="utf-8") as f:
-        f.write("*\n")
+    for sub in ("checks", "insns"):
+        link = os.path.join(native_root, sub)
+        if not os.path.islink(link):
+            os.symlink(os.path.join(rf_dir, sub), link)
     for f in ("wrapper.sv", "checks.cfg"):
         shutil.copy(os.path.join(src_dir, f), os.path.join(bind_dir, f))
 
-    # 2. Run genchecks.py from the binding dir (corename = dir basename,
-    #    basedir = dir/../.. = the riscv-formal root). Invoke by absolute path:
-    #    a relative sys.path[0] breaks the relocated OSS-CAD python importer.
+    # 2. Run genchecks.py from the native binding dir (corename = dir basename,
+    #    basedir = dir/../.. = native_root). Invoke by absolute path: a
+    #    relative sys.path[0] breaks the relocated OSS-CAD python importer.
     print(f"==> [m1-gen] genchecks.py (isa from checks.cfg) into {checks_dir}")
-    gen_py = os.path.normpath(os.path.join(bind_dir, "..", "..", "checks", "genchecks.py"))
     subprocess.run(
-        ["python3", gen_py],
+        ["python3", os.path.join(rf_dir, "checks", "genchecks.py")],
         cwd=bind_dir,
         check=True,
     )
@@ -111,6 +122,8 @@ def main() -> None:
             f.write(content)
 
     print(f"==> [m1-gen] post-processed {len(os.listdir(checks_dir))} files in {checks_dir}")
+    # Final stdout line: the native checks dir, for scripts/formal_m1.sh to use.
+    print(checks_dir)
 
 
 if __name__ == "__main__":

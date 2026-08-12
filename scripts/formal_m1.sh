@@ -6,11 +6,12 @@
 # through the formal/rvfi_channel wrapper (formal/up5k_rv/).
 #
 # Pipeline:
-#   1. scripts/formal_m1_gen.py -- generate the sby check files into a
-#      build-time binding dir (formal/riscv-formal/cores/up5k_rv/checks) and
+#   1. scripts/formal_m1_gen.py -- stage + generate the sby check files on
+#      NATIVE FS ($TMPDIR/up5k-rv-formal/cores/up5k_rv/checks) and
 #      post-process them (read_slang partition, RESET_CYCLES=8, bmc-mode
-#      consistency checks).
-#   2. Run the checks: 36 insn checks + pc_fwd in prove mode (k-induction,
+#      consistency checks). Generation runs on native FS because the repo's
+#      virtiofs mount corrupts getcwd() after any rmtree/write on it.
+#   2. Run the checks: 37 insn checks + pc_fwd in prove mode (k-induction,
 #      smtbmc yices per M1 P1a); reg/pc_bwd in bmc mode; cover in cover mode.
 #      Parallelized across cores; per-check timeout; logs in build/m1/.
 #
@@ -28,7 +29,7 @@ REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
 # shellcheck disable=SC1091
 source "${REPO_ROOT}/scripts/env.sh"
 
-CHECKS_DIR="${REPO_ROOT}/formal/riscv-formal/cores/up5k_rv/checks"
+# CHECKS_DIR is assigned below from the generator's output (native FS staging).
 LOG_DIR="${REPO_ROOT}/build/m1"
 CHECK_TIMEOUT="${FORMAL_M1_TIMEOUT:-1800}"   # per-check (s)
 PARALLEL="${FORMAL_M1_PARALLEL:-8}"          # modest: reads still hit virtiofs
@@ -53,14 +54,20 @@ INSN_CHECKS=(
 # bmc consistency checks + cover.
 AUX_CHECKS=(reg_ch0 pc_fwd_ch0 pc_bwd_ch0 cover)
 
+# --- 1. Generate the checks (staged on native FS; emits CHECKS_DIR last) --------
+GEN_OUT=$(python3 "${REPO_ROOT}/scripts/formal_m1_gen.py" "${REPO_ROOT}") \
+  || { echo "formal_m1.sh: ERROR: check generation failed" >&2; exit 1; }
+CHECKS_DIR=$(printf '%s\n' "${GEN_OUT}" | tail -1)
+
 if [ "${MODE}" = "--smoke" ]; then
   # CI per-PR smoke: a fast bmc subset (mirrors the M0 stock-core subset).
   RUN_CHECKS=(insn_add_ch0 insn_sub_ch0 insn_xor_ch0 insn_lw_ch0 insn_sw_ch0
               insn_beq_ch0 insn_jal_ch0 insn_jalr_ch0 reg_ch0 pc_fwd_ch0
               pc_bwd_ch0 cover)
   # The generated insn checks are prove-mode; for the smoke, switch the subset
-  # to bmc in a scratch dir (fast, shallow -- the full prove suite is nightly).
-  SMOKE_DIR="${REPO_ROOT}/build/m1-smoke"
+  # to bmc in a NATIVE scratch dir (fast, shallow -- the full prove suite is
+  # nightly).
+  SMOKE_DIR="${WORK_ROOT}-smoke"
   mkdir -p "${SMOKE_DIR}"
   for c in "${RUN_CHECKS[@]}"; do
     sed 's/^mode prove$/mode bmc/; /`define RISCV_FORMAL_UNBOUNDED/d' \
@@ -71,10 +78,6 @@ if [ "${MODE}" = "--smoke" ]; then
 else
   RUN_CHECKS=("${INSN_CHECKS[@]}" "${AUX_CHECKS[@]}")
 fi
-
-# --- 1. Generate the checks ----------------------------------------------------
-python3 "${REPO_ROOT}/scripts/formal_m1_gen.py" "${REPO_ROOT}" \
-  || { echo "formal_m1.sh: ERROR: check generation failed" >&2; exit 1; }
 
 mkdir -p "${LOG_DIR}" "${WORK_ROOT}"
 
