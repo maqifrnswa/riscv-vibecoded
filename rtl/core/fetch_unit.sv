@@ -85,7 +85,9 @@ module fetch_unit (
   end
 
   assign req_valid_o  = (fetch_phase_q == F_REQ);
-  assign req_addr_o   = fetch_pc_q;
+  // Word-aligned request: fetch_pc_q may be 2-aligned (C extension, M2); the
+  // core selects the containing halfword by PC[1] at the accept edge.
+  assign req_addr_o   = {fetch_pc_q[31:2], 2'b00};
   assign req_be_o     = 4'hF;
   assign word_valid_o = (fetch_phase_q == F_REQ) && rsp_valid_i;
 

@@ -21,7 +21,8 @@ mkdir -p build
 
 # All core sources are compiled for every test; unused modules are harmless.
 CORE_SRC="rtl/core/up5k_rv_pkg.sv rtl/core/decoder.sv rtl/core/regfile.sv \
-rtl/core/alu.sv rtl/core/lsu.sv rtl/core/fetch_unit.sv rtl/core/rv32i_core.sv"
+rtl/core/alu.sv rtl/core/lsu.sv rtl/core/fetch_unit.sv rtl/core/rv32i_core.sv \
+rtl/core/csr_file.sv"
 
 FAILED=0
 
@@ -51,6 +52,7 @@ run_test alu         ${CORE_SRC} dv/p2/tb_alu.sv
 run_test decoder     ${CORE_SRC} dv/p2/tb_decoder.sv
 run_test lsu         ${CORE_SRC} dv/p2/tb_lsu.sv
 run_test fetch_unit  ${CORE_SRC} dv/p2/tb_fetch_unit.sv
+run_test csr         ${CORE_SRC} dv/p2/tb_csr.sv
 run_test core        ${CORE_SRC} dv/p2/tb_core.sv
 
 if [ "${FAILED}" -eq 0 ]; then

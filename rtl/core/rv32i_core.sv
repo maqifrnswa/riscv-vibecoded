@@ -99,6 +99,16 @@ module rv32i_core (
   logic        dec_is_store;
   logic [ 2:0] dec_lsu_funct3;
   logic        dec_is_nop;
+  // M2 additions.
+  logic        dec_is_c;        // 16-bit (compressed) instruction
+  logic        dec_is_csr;
+  logic [11:0] dec_csr_addr;
+  csr_op_e     dec_csr_op;
+  logic        dec_csr_imm;
+  logic        dec_is_ecall;
+  logic        dec_is_ebreak;
+  logic        dec_is_mret;
+  logic        dec_is_illegal;
 
   decoder u_decoder (
     .insn_i         (insn_exe_q),
@@ -117,7 +127,16 @@ module rv32i_core (
     .is_load_o      (dec_is_load),
     .is_store_o     (dec_is_store),
     .lsu_funct3_o   (dec_lsu_funct3),
-    .is_nop_o       (dec_is_nop)
+    .is_nop_o       (dec_is_nop),
+    .is_c_o         (dec_is_c),
+    .is_csr_o       (dec_is_csr),
+    .csr_addr_o     (dec_csr_addr),
+    .csr_op_o       (dec_csr_op),
+    .csr_imm_o      (dec_csr_imm),
+    .is_ecall_o     (dec_is_ecall),
+    .is_ebreak_o    (dec_is_ebreak),
+    .is_mret_o      (dec_is_mret),
+    .is_illegal_o   (dec_is_illegal)
   );
 
   // ---- fetch unit -------------------------------------------------------------
@@ -154,16 +173,19 @@ module rv32i_core (
   logic [31:0] reg_rdata_b;
   logic        reg_we;
 
-  // Read addresses come from the INCOMING word (fields of the instruction
-  // entering ID); the data is latched into rs1_q/rs2_q at the accept edge.
+  // Read addresses come from the DECODER (M2): C-extension register fields
+  // (SPN regs, SP) differ from the raw fetch_word bit positions, so the
+  // decode of insn_exe_q drives the read during ID; the data is latched into
+  // rs1_q/rs2_q at the ID->EX edge. The writeback of instruction i still
+  // commits a full cycle before the ID read of i+1 (hazard-free, no bypass).
   regfile u_regfile (
     .clk_i     (clk_i),
     .rst_ni    (rst_ni),
     .waddr_i   (dec_rd_addr),
     .wdata_i   (rd_wdata_comb),
     .we_i      (reg_we),
-    .raddr_a_i (fetch_word[19:15]),
-    .raddr_b_i (fetch_word[24:20]),
+    .raddr_a_i (dec_rs1_addr),
+    .raddr_b_i (dec_rs2_addr),
     .rdata_a_o (reg_rdata_a),
     .rdata_b_o (reg_rdata_b)
   );
@@ -207,8 +229,13 @@ module rv32i_core (
   logic        branch_taken;
   logic [31:0] branch_target;
   phase_e      phase_d;
+  logic [31:0] fetch_word_sel;  // selected halfword, zero-extended (C granularity)
 
-  assign seq_pc        = pc_exe_q + 32'd4;
+  // M2: the fetched word is selected by PC[1] (16-bit granularity, D3);
+  // seq_pc advances +2 for C instructions, +4 for 32-bit.
+  assign fetch_word_sel = fetch_word_pc[1] ? {16'b0, fetch_word[31:16]}
+                                           : {16'b0, fetch_word[15:0]};
+  assign seq_pc        = pc_exe_q + (dec_is_c ? 32'd2 : 32'd4);
   assign branch_taken  = dec_is_branch && alu_branch_taken;
   assign branch_target = dec_is_jalr ? ((rs1_q + dec_imm) & ~32'h1)
                                      : (pc_exe_q + dec_imm);
@@ -303,10 +330,25 @@ module rv32i_core (
       // Accept a fetched word into ID (one cycle after its capture, so
       // fetch_word/fetch_word_pc are stable here).
       if (accept) begin
-        insn_exe_q <= fetch_word;
+        // C-ext granularity: the selected halfword is the instruction. A
+        // 32-bit instruction is the full word only when the PC is 4-aligned;
+        // a 32-bit-looking halfword at a 2-aligned PC executes zero-extended
+        // (model-required execute-without-trap, Gate-1 finding 1.1).
+        if (!fetch_word_pc[1] && (fetch_word_sel[1:0] == 2'b11)) begin
+          insn_exe_q <= fetch_word;
+        end else begin
+          insn_exe_q <= fetch_word_sel;
+        end
         pc_exe_q   <= fetch_word_pc;
-        rs1_q      <= reg_rdata_a;
-        rs2_q      <= reg_rdata_b;
+      end
+
+      // ID -> EX: latch the register-file operands. The read uses the
+      // decoder's rs addresses during ID (C register fields need the C
+      // decode); the previous instruction's WB commit is a full cycle before
+      // this read, so no forwarding is required (hazard-free schedule).
+      if (phase_q == PH_ID) begin
+        rs1_q <= reg_rdata_a;
+        rs2_q <= reg_rdata_b;
       end
 
       // EX -> WB: register ALU result and the effective address (loads/stores).

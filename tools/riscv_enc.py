@@ -313,7 +313,11 @@ def c_jal(imm):
 
 
 def _c_cl_imm(imm):
-    """CL-type load/store immediate: {insn[5],insn[12:10],insn[6],2'b00}."""
+    """CL-type load/store immediate (byte offset, multiple of 4).
+
+    The model's CL imm is the byte offset: {insn[5],insn[12:10],insn[6],2'b00}.
+    The encoder maps the byte offset's bits [6:2] to those insn bits.
+    """
     return (((imm >> 6) & 1) << 5) | (((imm >> 5) & 1) << 12) \
         | (((imm >> 4) & 1) << 11) | (((imm >> 3) & 1) << 10) \
         | (((imm >> 2) & 1) << 6)

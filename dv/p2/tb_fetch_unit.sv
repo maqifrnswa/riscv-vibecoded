@@ -186,6 +186,23 @@ module tb_fetch_unit;
     check32 (word,     32'hfeed_face, "latency1 word");
     check32 (word_pc,  32'h0000_4000, "latency1 word_pc");
 
+    // ---- 6. unaligned (2-aligned) fetch PC -> word-aligned request (M2) -------------
+    // The core may fetch at a 2-aligned PC (C extension); the request must be
+    // word-aligned while word_pc preserves the full PC for the core's
+    // halfword select at the accept edge.
+    use_latency = 0;
+    start = 1;
+    fetch_pc = 32'h0000_1002;
+    @(posedge clk);  // -> F_REQ
+    #1;
+    check_bit(req_valid,  1'b1, "unaligned req_valid");
+    check32 (req_addr,    32'h0000_1000, "unaligned req_addr word-aligned");
+    check_bit(word_valid, 1'b1, "unaligned word_valid");
+    @(posedge clk);  // capture
+    #1;
+    check32 (word,     32'hdead_beef, "unaligned word");
+    check32 (word_pc,  32'h0000_1002, "unaligned word_pc preserves full PC");
+
     if (fail_count == 0) begin
       $display("PASS tb_fetch_unit");
     end else begin
