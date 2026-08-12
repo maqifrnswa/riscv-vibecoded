@@ -27,26 +27,44 @@ cd "${REPO_ROOT}"
 
 # Modules to lint (sources, no testbenches).
 HELLO_SRC="rtl/hello/hello.sv"
+CORE_SRC="rtl/core/up5k_rv_pkg.sv rtl/core/decoder.sv rtl/core/regfile.sv \
+rtl/core/alu.sv rtl/core/lsu.sv rtl/core/fetch_unit.sv rtl/core/rv32i_core.sv"
 
 FAILED=0
 
 # --- 1. yosys read_slang lint -----------------------------------------------
 echo "==> [lint] yosys read_slang: ${HELLO_SRC}"
 if yosys -Q -p "read_slang ${HELLO_SRC}; check"; then
-  echo "    [lint] yosys read_slang: PASS"
+  echo "    [lint] yosys read_slang (hello): PASS"
 else
-  echo "    [lint] yosys read_slang: FAIL"
+  echo "    [lint] yosys read_slang (hello): FAIL"
+  FAILED=1
+fi
+
+echo "==> [lint] yosys read_slang: ${CORE_SRC}"
+if yosys -Q -p "read_slang ${CORE_SRC}; check"; then
+  echo "    [lint] yosys read_slang (core): PASS"
+else
+  echo "    [lint] yosys read_slang (core): FAIL"
   FAILED=1
 fi
 
 # --- 2. verilator --lint-only ------------------------------------------------
-# --timing is intentionally omitted: not required for this module and avoids
+# --timing is intentionally omitted: not required for these modules and avoids
 # depending on the installed Verilator having it enabled.
 echo "==> [lint] verilator --lint-only: ${HELLO_SRC}"
 if verilator --lint-only -Wall -Wno-fatal ${HELLO_SRC}; then
-  echo "    [lint] verilator --lint-only: PASS"
+  echo "    [lint] verilator --lint-only (hello): PASS"
 else
-  echo "    [lint] verilator --lint-only: FAIL"
+  echo "    [lint] verilator --lint-only (hello): FAIL"
+  FAILED=1
+fi
+
+echo "==> [lint] verilator --lint-only: ${CORE_SRC}"
+if verilator --lint-only -Wall -Wno-fatal ${CORE_SRC}; then
+  echo "    [lint] verilator --lint-only (core): PASS"
+else
+  echo "    [lint] verilator --lint-only (core): FAIL"
   FAILED=1
 fi
 

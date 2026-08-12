@@ -279,6 +279,20 @@ spike** on the identical binary. (Bonus: RVFI trace diff against spike.)
 
 ## Change log
 
+- 2026-08-12 — M1 P2: hazard-free phase schedule implemented (deepwork
+  refinement, pending P4 oracle approval). ID→EX→(MEM)→WB with one IDLE cycle
+  inserted between WB and ID, so the ID-stage register read happens a full
+  cycle after the previous instruction's WB commit edge — RAW hazards are
+  structurally impossible. Overlapped next-fetch kept: F_REQ during EX for
+  ALU/branch instructions, during WB for loads/stores. Branches/jumps fetch
+  the sequential successor speculatively and redirect the fetch unit at the
+  EX→WB edge when taken (target = (rs1+imm)&~1 for jalr, else pc+imm).
+  Forwarding and the load-use stall (D5) are deferred to M4 tuning. RVFI
+  memory reporting: word-aligned mem_addr with byte enables in rmask/wmask,
+  raw word in mem_rdata (matches the riscv-formal memory model). Core memory
+  slave must respond combinationally in M1 (formal path); registered-latency
+  SoC slaves are an M5 adapter concern (fetch_unit notes stale-response
+  suppression).
 - 2026-08-11 — Initial locked design. D1–D17 as above. Supersedes draft notes.
   Key revisions during interview: M extension parameterized (not fixed),
   misaligned→trap (not split), full SoC demo as first deliverable, SV via

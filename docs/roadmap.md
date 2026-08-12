@@ -80,7 +80,19 @@ Status legend: `TODO` / `IN PROGRESS` / `BLOCKED` / `DONE`.
   memory model; riscv-formal `rv32i` prove in CI.
 - **Exit criteria:** `rv32i` prove green; RVFI channel conventions documented
   (incl. C-word masking plan for M2).
-- **Handoff notes:** *(empty)*
+- **Handoff notes:** P2 (core RTL) DONE 2026-08-12, staged per deepwork plan
+  (`.slim/deepwork/m1-core-rvfi.md`): `rtl/core/{up5k_rv_pkg,regfile,alu,
+  decoder,lsu,fetch_unit,rv32i_core}.sv` with per-stage directed tests in
+  `dv/p2/` — `make p2-tests` green (6 tests: regfile, alu, decoder, lsu,
+  fetch_unit, core) and `make lint` green (read_slang + verilator on the
+  full core). Schedule is hazard-free (WB→IDLE→ID; overlapped fetch at
+  ID→EX / MEM→WB edges; branch redirect at EX→WB edge) per the deepwork
+  refinement — flagged for P4 oracle review. **Next action: P3** — RVFI
+  wrapper + memory model + `rv32i` prove. P3 gate item: scope the M1
+  `checks.cfg` CHECKS subset to the supported RV32I instructions (exclude
+  csr/ecall/ebreak — traps are M2) and confirm `spec_valid` constrains
+  rvfi_insn accordingly; also resolve misaligned-access handling (M1 core
+  has no traps). Working commands: `make lint`, `make p2-tests`.
 
 ## M2 — C extension + traps + CSRs
 

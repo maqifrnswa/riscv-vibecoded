@@ -12,7 +12,7 @@ BUILD_DIR := build
 # Environment bootstrap (sources toolchain PATH + defines REPO_ROOT).
 ENV_SH := scripts/env.sh
 
-.PHONY: env lint sim-hello formal formal-smoke formal-smoke-generate synth clean
+.PHONY: env lint sim-hello p2-tests formal formal-smoke formal-smoke-generate synth clean
 
 ## env -- print pinned tool versions (M0 provisioning must be complete).
 env:
@@ -36,6 +36,11 @@ sim-hello:
 	mkdir -p $(BUILD_DIR); \
 	iverilog -g2012 -o $(BUILD_DIR)/tb_hello rtl/hello/hello.sv rtl/hello/tb_hello.sv; \
 	vvp $(BUILD_DIR)/tb_hello
+
+## p2-tests -- M1 P2 staged core tests (leaf modules + core integration).
+p2-tests:
+	@source $(ENV_SH); \
+	scripts/p2_tests.sh
 
 ## formal -- placeholder until M1.
 formal:
