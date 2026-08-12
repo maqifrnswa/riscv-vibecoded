@@ -241,6 +241,98 @@ module rv32i_core (
                                      : (pc_exe_q + dec_imm);
   assign accept = (phase_q == PH_IDLE) && word_pending_q;
 
+  // ---- trap machinery (M2 P1-4b; model-matched per design.md §3.3) --------------
+  // Trap sources, combinational during EX (the misalign address is the ALU
+  // result). mcause per design: 0 instr-addr-misaligned, 2 illegal, 3 ebreak,
+  // 4 load / 6 store misaligned, 11 ecall-from-M. mtval = faulting address for
+  // misaligned load/store, else 0.
+  logic        trap_inst_misalign;
+  logic        trap_illegal;
+  logic        trap_ebreak;
+  logic        trap_mem_mis;
+  logic        trap_ecall;
+  logic        trap_pending;
+  logic        mret_pending;
+  logic [31:0] trap_mcause;
+  logic [31:0] trap_mtval;
+  logic        trap_exe_q;       // latched at EX->WB
+  logic        mret_exe_q;
+  logic [31:0] trap_mcause_q;
+  logic [31:0] trap_mtval_q;
+  logic [31:0] mtvec_val;
+  logic [31:0] mepc_val;
+  // Trap/mret CSR-update enables (computed here rather than inline in the
+  // csr_file port connections -- the inline phase_q == PH_WB comparison in a
+  // port connection breaks iverilog's enum typing for the phase FSM below).
+  logic        csr_trap_enter;
+  logic        csr_mret_enter;
+  assign csr_trap_enter = (phase_q == PH_WB) && trap_exe_q;
+  assign csr_mret_enter = (phase_q == PH_WB) && mret_exe_q;
+
+  // Branch/jal trap on an odd target (32-bit only: c.j/c.jal never trap);
+  // jalr never traps (target bit0 masked).
+  assign trap_inst_misalign = (dec_is_branch || (dec_is_jal && !dec_is_c)) &&
+                              branch_target[0];
+  assign trap_illegal = dec_is_illegal;
+  assign trap_ebreak  = dec_is_ebreak;
+  assign trap_ecall   = dec_is_ecall;
+  assign mret_pending = dec_is_mret;
+
+  // Misaligned load/store per RISCV_FORMAL_ALIGNED_MEM (lb/lbu/sb never trap).
+  // Loads and stores share funct3 values (lh==sh, lw==sw), so the load/store
+  // flag disambiguates. Written as if/else (iverilog enum quirk: a
+  // concatenation case selector breaks enum typing in later always blocks).
+  always_comb begin
+    trap_mem_mis = 1'b0;
+    if (dec_is_load) begin
+      if ((dec_lsu_funct3 == FUNCT3_LH) || (dec_lsu_funct3 == FUNCT3_LHU)) begin
+        trap_mem_mis = alu_result_comb[0];
+      end else if (dec_lsu_funct3 == FUNCT3_LW) begin
+        trap_mem_mis = |alu_result_comb[1:0];
+      end
+    end else if (dec_is_store) begin
+      if (dec_lsu_funct3 == FUNCT3_SH) begin
+        trap_mem_mis = alu_result_comb[0];
+      end else if (dec_lsu_funct3 == FUNCT3_SW) begin
+        trap_mem_mis = |alu_result_comb[1:0];
+      end
+    end
+  end
+
+  assign trap_pending = trap_inst_misalign || trap_illegal || trap_ebreak ||
+                        trap_mem_mis || trap_ecall;
+
+  always_comb begin
+    trap_mcause = 32'd0;
+    trap_mtval  = 32'd0;
+    if (trap_illegal) trap_mcause = 32'd2;
+    if (trap_ebreak)  trap_mcause = 32'd3;
+    if (trap_mem_mis) begin
+      trap_mcause = dec_is_load ? 32'd4 : 32'd6;
+      trap_mtval  = alu_result_comb;
+    end
+    if (trap_ecall) trap_mcause = 32'd11;
+  end
+
+  // CSR file (D7): trap entry/exit updates; mtvec/mepc feed the redirects.
+  // The CSR-instruction read/write path and rvfi_csr channel wire up in P1-4c.
+  csr_file u_csr (
+    .clk_i         (clk_i),
+    .rst_ni        (rst_ni),
+    .csr_addr_i    (12'd0),
+    .csr_rdata_o   (),
+    .csr_we_i      (1'b0),
+    .csr_wdata_i   (32'd0),
+    .trap_enter_i  (csr_trap_enter),
+    .trap_mepc_i   (pc_exe_q),
+    .trap_mcause_i (trap_mcause_q),
+    .trap_mtval_i  (trap_mtval_q),
+    .mret_i        (csr_mret_enter),
+    .mcycle_o      (),
+    .mtvec_o       (mtvec_val),
+    .mepc_o        (mepc_val)
+  );
+
   // Next-instruction fetch scheduling (hazard-free schedule; see header).
   assign fetch_start = ((phase_q == PH_IDLE) && !word_pending_q) ||
                        ((phase_q == PH_ID)    && !dec_is_load && !dec_is_store) ||
@@ -248,8 +340,11 @@ module rv32i_core (
   assign fetch_pc   = (phase_q == PH_IDLE) ? 32'h0  // reset vector (only IDLE-no-pending)
                                            : seq_pc;
   assign fetch_redirect  = (phase_q == PH_EX) &&
-                           (branch_taken || dec_is_jal || dec_is_jalr);
-  assign redirect_target = branch_target;
+                           (branch_taken || dec_is_jal || dec_is_jalr ||
+                            trap_pending || mret_pending);
+  assign redirect_target = trap_pending  ? (mtvec_val & ~32'h3) :
+                           mret_pending  ? mepc_val :
+                           branch_target;
 
   // ALU operand selection.
   always_comb begin
@@ -279,7 +374,9 @@ module rv32i_core (
       end
       PH_ID:   phase_d = PH_EX;
       PH_EX: begin
-        if (dec_is_load || dec_is_store) begin
+        // A trapping load/store skips MEM: no LSU request is issued, so a
+        // misaligned store can never physically write memory (4.3).
+        if ((dec_is_load || dec_is_store) && !trap_pending) begin
           phase_d = PH_MEM;
         end else begin
           phase_d = PH_WB;
@@ -309,7 +406,10 @@ module rv32i_core (
     end
   end
 
-  assign reg_we = (phase_q == PH_WB) && dec_rd_we && (dec_rd_addr != 5'd0);
+  // A trapping retirement commits no architectural state: no register write
+  // (4.2), no memory access.
+  assign reg_we = (phase_q == PH_WB) && dec_rd_we && (dec_rd_addr != 5'd0) &&
+                  !trap_exe_q;
 
   // ---- registered pipeline update ------------------------------------------------
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -324,6 +424,10 @@ module rv32i_core (
       mem_rdata_q    <= 32'd0;
       word_pending_q <= 1'b0;
       order_q        <= 64'd0;
+      trap_exe_q     <= 1'b0;
+      mret_exe_q     <= 1'b0;
+      trap_mcause_q  <= 32'd0;
+      trap_mtval_q   <= 32'd0;
     end else begin
       phase_q <= phase_d;
 
@@ -351,10 +455,15 @@ module rv32i_core (
         rs2_q <= reg_rdata_b;
       end
 
-      // EX -> WB: register ALU result and the effective address (loads/stores).
+      // EX -> WB: register ALU result, the effective address (loads/stores),
+      // and the trap information (pending + mcause/mtval) for the WB retire.
       if (phase_q == PH_EX) begin
-        alu_result_q <= alu_result_comb;
-        mem_addr_q   <= alu_result_comb;
+        alu_result_q   <= alu_result_comb;
+        mem_addr_q     <= alu_result_comb;
+        trap_exe_q     <= trap_pending;
+        mret_exe_q     <= mret_pending;
+        trap_mcause_q  <= trap_mcause;
+        trap_mtval_q   <= trap_mtval;
       end
 
       // MEM: latch the memory response data.
@@ -391,34 +500,41 @@ module rv32i_core (
   assign rvfi_valid     = (phase_q == PH_WB);
   assign rvfi_order     = order_q;
   assign rvfi_insn      = insn_exe_q;
-  assign rvfi_trap      = 1'b0;  // M1: no traps (ecall/ebreak/csr retire as NOP)
+  assign rvfi_trap      = trap_exe_q;  // M2: trap retirements report 1
   assign rvfi_halt      = 1'b0;
   assign rvfi_intr      = 1'b0;
-  assign rvfi_mode      = 2'd0;  // U-Mode (RISCV_FORMAL_UMODE)
+  assign rvfi_mode      = 2'd3;  // M-mode (Gate-1 finding 4.1: [csrs] checks
+                                 // require mode>=3 for M-CSR access)
   assign rvfi_ixl       = 2'd1;  // XLEN=32
 
   assign rvfi_rs1_addr  = dec_rs1_addr;
   assign rvfi_rs2_addr  = dec_rs2_addr;
   assign rvfi_rs1_rdata = rs1_q;
   assign rvfi_rs2_rdata = rs2_q;
-  // rd_addr is 0 for any retirement that does not write the register file.
-  // The riscv-formal reg check builds its shadow register file from
-  // rvfi_rd_addr/rvfi_rd_wdata of every retirement; a non-writing retirement
-  // (NOP/ecall/ebreak/csr/garbage) must not look like a write to a random
-  // register, or the shadow is poisoned and later reads spuriously fail.
-  assign rvfi_rd_addr   = dec_rd_we ? dec_rd_addr : 5'd0;
-  assign rvfi_rd_wdata  = dec_rd_we ? ((dec_rd_addr == 5'd0) ? 32'd0
-                                                             : rd_wdata_comb)
-                                    : 32'd0;
+  // rd_addr is 0 for any retirement that does not write the register file,
+  // INCLUDING trap retirements (4.2): a trapping jal/branch must not look
+  // like a write, or the riscv-formal reg check shadow is poisoned.
+  assign rvfi_rd_addr   = (dec_rd_we && !trap_exe_q) ? dec_rd_addr : 5'd0;
+  assign rvfi_rd_wdata  = (dec_rd_we && !trap_exe_q)
+                          ? ((dec_rd_addr == 5'd0) ? 32'd0 : rd_wdata_comb)
+                          : 32'd0;
   assign rvfi_pc_rdata  = pc_exe_q;
-  assign rvfi_pc_wdata  = (branch_taken || dec_is_jal || dec_is_jalr)
+  assign rvfi_pc_wdata  = trap_exe_q ? (mtvec_val & ~32'h3) :
+                          mret_exe_q ? mepc_val :
+                          (branch_taken || dec_is_jal || dec_is_jalr)
                           ? branch_target : seq_pc;
 
   assign rvfi_mem_addr  = ((phase_q == PH_WB) && (dec_is_load || dec_is_store))
                           ? lsu_addr : 32'd0;
-  assign rvfi_mem_rmask = ((phase_q == PH_WB) && dec_is_load)  ? lsu_be  : 4'd0;
-  assign rvfi_mem_wmask = ((phase_q == PH_WB) && dec_is_store) ? lsu_be  : 4'd0;
-  assign rvfi_mem_rdata = ((phase_q == PH_WB) && dec_is_load)  ? mem_rdata_q : 32'd0;
-  assign rvfi_mem_wdata = ((phase_q == PH_WB) && dec_is_store) ? lsu_wdata : 32'd0;
+  // No access is reported for a trapping load/store (the LSU request was
+  // suppressed at EX; the mem channel reports rmask/wmask = 0).
+  assign rvfi_mem_rmask = ((phase_q == PH_WB) && dec_is_load  && !trap_exe_q)
+                          ? lsu_be : 4'd0;
+  assign rvfi_mem_wmask = ((phase_q == PH_WB) && dec_is_store && !trap_exe_q)
+                          ? lsu_be : 4'd0;
+  assign rvfi_mem_rdata = ((phase_q == PH_WB) && dec_is_load  && !trap_exe_q)
+                          ? mem_rdata_q : 32'd0;
+  assign rvfi_mem_wdata = ((phase_q == PH_WB) && dec_is_store && !trap_exe_q)
+                          ? lsu_wdata : 32'd0;
 
 endmodule
