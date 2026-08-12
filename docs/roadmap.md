@@ -16,7 +16,7 @@ See [handoff.md](handoff.md) for the session protocol.
 | M | Milestone | Status | Exit criteria |
 |---|---|---|---|
 | M0 | Scaffold + toolchain smoke | **DONE** (2026-08-11, deepwork) | Repo layout, toolchain pinned, lint gate green, riscv-formal submodule, **stock picorv32 binding green through sby in CI** |
-| M1 | RV32I core + RVFI | TODO | RV32I multi-cycle core; riscv-formal `rv32i` prove passing in CI |
+| M1 | RV32I core + RVFI | **IN PROGRESS** (started 2026-08-11, deepwork) | RV32I multi-cycle core; riscv-formal `rv32i` prove passing in CI |
 | M2 | C ext + traps + CSRs | TODO | `rv32imc` prove **and** live green (ALTOPS) |
 | M3 | MUL/DIV units | TODO | Bounded-width formal + golden DV + determinism property green; full rv32imc suite green |
 | M4 | CoreMark port + perf | TODO | CoreMark score in Verilator sim; spike cross-check; CPI target met |

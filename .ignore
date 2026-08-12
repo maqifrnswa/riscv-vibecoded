@@ -1,0 +1,5 @@
+# Ripgrep-tooling ignore (NOT read by git — git ignores via .gitignore).
+# Keeps .slim/deepwork/ state readable by OpenCode's rg-based tools while
+# staying out of git.
+!.slim/deepwork/
+!.slim/deepwork/**
