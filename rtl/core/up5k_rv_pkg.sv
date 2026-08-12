@@ -43,8 +43,19 @@ package up5k_rv_pkg;
   localparam logic [2:0] FUNCT3_SH = 3'b001;
   localparam logic [2:0] FUNCT3_SW = 3'b010;
 
+  // ---- M-extension (OP opcode, funct7 = 0000001) ----------------------------
+  localparam logic [6:0] FUNCT7_M = 7'b0000001;
+
+  // ---- C-extension quadrants (insn[1:0] of a 16-bit instruction) ------------
+  localparam logic [1:0] C_QUAD0 = 2'b00;  // c.addi4spn, c.lw, c.sw
+  localparam logic [1:0] C_QUAD1 = 2'b01;  // c.addi, c.jal, c.li, c.lui/c.addi16sp,
+                                           // c.srli/c.srai/c.andi/c.sub/xor/or/and,
+                                           // c.j, c.beqz/c.bnez
+  localparam logic [1:0] C_QUAD2 = 2'b10;  // c.slli, c.lwsp, c.swsp,
+                                           // c.mv/c.jr, c.add/c.jalr/c.ebreak
+
   // ---- ALU operations -------------------------------------------------------
-  typedef enum logic [3:0] {
+  typedef enum logic [4:0] {
     ALU_ADD,
     ALU_SUB,
     ALU_SLL,
@@ -54,8 +65,27 @@ package up5k_rv_pkg;
     ALU_SRL,
     ALU_SRA,
     ALU_OR,
-    ALU_AND
+    ALU_AND,
+    // M-extension ALTOPS fake ops (D18): (rs1 +- rs2) ^ mask, byte-exact vs the
+    // riscv-formal rv32imc models (which assert rvfi_rd_wdata exactly). Real
+    // fixed-latency MUL/DIV (D6) replace these at M3 with wrapper-side ALTOPS
+    // compensation.
+    ALU_MUL_ALT,
+    ALU_MULH_ALT,
+    ALU_MULHSU_ALT,
+    ALU_MULHU_ALT,
+    ALU_DIV_ALT,
+    ALU_DIVU_ALT,
+    ALU_REM_ALT,
+    ALU_REMU_ALT
   } alu_op_e;
+
+  // ---- CSR read-modify-write class -------------------------------------------
+  typedef enum logic [1:0] {
+    CSR_RW,  // csrrw / csrrwi:      write operand unconditionally
+    CSR_RS,  // csrrs / csrrsi:      set bits (write only if operand != 0)
+    CSR_RC   // csrrc / csrrci:      clear bits (write only if operand != 0)
+  } csr_op_e;
 
   // ---- ALU operand-a source select ------------------------------------------
   typedef enum logic [1:0] {
