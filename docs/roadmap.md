@@ -151,11 +151,12 @@ Status legend: `TODO` / `IN PROGRESS` / `BLOCKED` / `DONE`.
 
 - **Objective:** parameterized M unit closed three ways (design.md §5.2).
 - **Tasks:** 4-bit/cycle shift-add MUL (8 cyc); non-restoring DIV (33 cyc);
-  `M` parameter (default on); bounded-width formal proofs (**bmc-first**,
+  `M` parameter (default on); bounded-width formal proofs (**bmc-first**, 8/16/24-bit,
   §5.2 revised); golden-model cocotb DV; **core-side ALTOPS substitution** in
   the M unit (`FormalAltops` param, D18 amended — wrapper-side compensation
-  rejected); **formal re-tune before the real units land**: `liveness 1 10 50`
-  (the 33-cycle DIV breaks the 20-cycle window — retire gap ~36–38) and
+  rejected); **formal re-tune before the real units land**: `liveness 1 10 60`
+  (the 33-cycle DIV breaks the 20-cycle window — retire gap ~36–38; 50→60 for
+  margin, 2026-08-12 review) and
   bmc-smoke `insn_div` check-cycle re-tune (exact-cycle semantics — vacuity
   risk); **pin spike + cocotb** in MANIFEST.md/env.sh (load-bearing for the
   exit criteria); DIV/DIVU/REM/REMU corner cases in DV (÷0, INT_MIN/−1,
@@ -166,7 +167,13 @@ Status legend: `TODO` / `IN PROGRESS` / `BLOCKED` / `DONE`.
   *control path* is proven, arithmetic truth carried by golden DV + bounded
   proofs + spike cross-check (state it this way in the report); golden DV +
   bounded proofs committed.
-- **Handoff notes:** *(empty)*
+- **Handoff notes:** plan written 2026-08-16 — see `.slim/deepwork/m3-muldiv.md`
+  (post-M2 review folded in): M-unit interface contract pinned (data-independent
+  `done`, `FormalAltops` = result-substitution-at-write only, named-and-forbidden
+  shortcut); non-vacuity cover "any M-encoding retired" asserted as a recorded exit
+  artifact; `M=1` documented as the proven/shipped config (the `rv32ic`/M=0 run +
+  illegal-M-encoding test move to the M7 nightly); P0 gate = pin spike + cocotb
+  before any RTL. Deepwork: **queued, not started**.
 
 ## M4 — CoreMark port + performance
 
@@ -179,7 +186,13 @@ Status legend: `TODO` / `IN PROGRESS` / `BLOCKED` / `DONE`.
   SPRAM budget check in sim** (likely overflow — fallback 1500 or a 64 KB
   map); BSP (crt0, linker script, newlib syscalls); end-to-end sim; spike
   hash/score cross-check; D5 tuning pass (forwarding, tighter overlap,
-  remove the IDLE cycle).
+  remove the IDLE cycle); **P0 data gate (before porting)**: spike-trace the
+  actual binary (insn/iter, mul+div counts) and compute the exact CoreMark
+  footprint — CPI target, slave model, `TOTAL_DATA_SIZE`, and the MUL-speed
+  lever decided from that measurement, not the ±30% 0.3–0.4M insn/iter anchor;
+  **CM/MHz scale note** in docs (repo scale = iter/sec/MHz, ~60× below the
+  official iter/min CoreMark score — the bar-20 figure is self-consistent with
+  the sibling frontier's 37.5 max).
 - **Exit criteria:** valid ≥10 s CoreMark run in sim (reduced iterations for
   iteration loops — the 10 s certification run costs ~480M cycles);
   **measured CM/MHz ≥ 1.0 in sim** (numeric CPI target — replaces the
@@ -200,7 +213,15 @@ Status legend: `TODO` / `IN PROGRESS` / `BLOCKED` / `DONE`.
   from M2); **fetch_unit stale-response suppression** for registered-latency
   slaves (M1 note) + `make formal-m2` re-run after the rtl/core/ edit;
   **D12 clock decision**: 12 MHz XO + PLL → 48 MHz (UART accuracy — HFOSC
-  ±5% fails at 115200); SoC decoder + bounded-response sby proves.
+  ±5% fails at 115200); SoC decoder + bounded-response sby proves; **P0
+  pre-staging (biggest single deepwork run)**: per-leaf contract + iverilog
+  test for decoder / ROM / SPRAM / UART / timer / GPIO before integration;
+  UART 48 MHz @115200 is fractional — pin a 16× + accumulator scheme (~0.16%
+  error; naive integer oversampling fails); shared-RAM wrapper is a prove-mode
+  blowup risk (bit-blasted 8K×32, k-induction @48, `abc pdr` never converged
+  here) → pre-plan insn checks bmc-only / reduced depth for that binding;
+  **pull M6 board confirmation into M5 P0** (~1 day): 12 MHz pin (42, errata),
+  OSC jumper, flash-boot vs CRAM selection.
 - **Exit criteria:** SoC formal proves green; CoreMark runs end-to-end in sim
   via the loader path; load-data/execute-after-store checks green.
 - **Handoff notes:** *(empty)*
@@ -236,5 +257,13 @@ Status legend: `TODO` / `IN PROGRESS` / `BLOCKED` / `DONE`.
 
 ## Change log
 
+- 2026-08-16 — M3 plan written (`.slim/deepwork/m3-muldiv.md`); the 2026-08-12
+  post-M2 review is folded in: liveness `1 10 60` (was 50 — margin over the ~36–38
+  DIV retire gap), bounded widths 8/16/24-bit, `M=1` documented as the proven/shipped
+  config (rv32ic/M=0 run → M7 nightly), non-vacuity cover as a recorded exit artifact,
+  M-unit interface contract pinned (data-independent `done`, `FormalAltops` =
+  result-substitution-at-write only). M4 P0 data gate + CM/MHz scale note and
+  M5 P0 pre-staging + UART 16× + M6-board-confirmation items added. M3 deepwork
+  queued, not started.
 - 2026-08-11 — Roadmap created from locked design (docs/design.md). M0–M8 as
   above.
